@@ -1,0 +1,33 @@
+# Secrets
+.env
+.env.*
+!.env.example
+secrets/
+
+# Python
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Private evaluation
+evals/holdout/
+reports/private/
+artifacts/private/
+
+# Claude local files
+CLAUDE.local.md
+.claude/settings.local.json
+
+# Runtime output
+data/
+artifacts/
+*.log
+
+# OS
+.DS_Store
+Thumbs.db

@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "env": {
+    "UV_LINK_MODE": "copy"
+  },
+  "permissions": {
+    "defaultMode": "default",
+    "disableBypassPermissionsMode": "disable",
+    "additionalDirectories": [
+      "../tau2-bench-upstream"
+    ],
+    "allow": [
+      "Bash(pwd)",
+      "Bash(ls *)",
+      "Bash(find *)",
+      "Bash(git status)",
+      "Bash(git diff *)",
+      "Bash(git log *)",
+      "Bash(git branch *)",
+      "Bash(git rev-parse *)",
+      "Bash(uv sync *)",
+      "Bash(uv run pytest *)",
+      "Bash(uv run ruff *)",
+      "Bash(uv run mypy *)",
+      "Bash(uv run python *)"
+    ],
+    "ask": [
+      "Bash(uv add *)",
+      "Bash(git commit *)",
+      "Bash(git push *)",
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(docker *)",
+      "Edit(./CLAUDE.md)",
+      "Write(./CLAUDE.md)",
+      "Edit(./.claude/**)",
+      "Write(./.claude/**)"
+    ],
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./secrets/**)",
+      "Read(//mnt/f/projects/tau2-bench-upstream/data/**)",
+      "Read(//mnt/f/projects/eval-results-private/**)",
+      "Edit(//mnt/f/projects/tau2-bench-upstream/**)",
+      "Write(//mnt/f/projects/tau2-bench-upstream/**)",
+      "Edit(//mnt/f/projects/eval-results-private/**)",
+      "Write(//mnt/f/projects/eval-results-private/**)",
+      "Bash(git reset --hard *)",
+      "Bash(git clean -f*)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(rm -rf *)",
+      "Bash(chmod -R 777 *)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read|Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$CLAUDE_PROJECT_DIR/.claude/hooks/guard_tool_use.py\"",
+            "timeout": 10,
+            "statusMessage": "Checking banking-agent project guardrails"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+repository=https://github.com/sierra-research/tau2-bench
+commit=5ebebbe827b455b3ed04fcb9294235c6ef4e5fd6
+branch=main
+domain=banking_knowledge
+integration_mode=external-pinned-upstream
+upstream_path=../tau2-bench-upstream
+official_evaluation_mode=manual-outside-claude-code
+python_requires=>=3.12,<3.14
