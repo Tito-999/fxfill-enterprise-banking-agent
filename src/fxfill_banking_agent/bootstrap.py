@@ -108,8 +108,8 @@ async def bootstrap_app(
         # ── MCP Client ─────────────────────────────────────────────
         banking_server = BankingMCPServer()
         mcp = MCPClientAdapter(banking_server)
-        await mcp.connect()
         resources.mcp_client = mcp
+        await mcp.connect()
         logger.info("mcp_client_created", tool_count=len(mcp.tools))
 
         # ── Auth Gateway ───────────────────────────────────────────
@@ -124,8 +124,8 @@ async def bootstrap_app(
             idem_store = SqliteIdempotencyStore(db_path)
             resources.idempotency_store = idem_store
             event_store = SqliteEventStore(db_path)
-            await event_store.connect()
             resources.event_store = event_store
+            await event_store.connect()
         else:
             hitl_store = None
             grant_repo = None

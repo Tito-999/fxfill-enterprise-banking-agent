@@ -161,6 +161,105 @@ class TestBootstrapRollback:
 
         assert len(_open_connections) == 0
 
+    @pytest.mark.asyncio
+    async def test_mcp_connect_failure_disconnects_failing_instance(self, tmp_path: Path) -> None:
+        """MCP connect() failure: the failing MCP instance is itself disconnected."""
+        os.environ["DEEPSEEK_API_TOKEN"] = "test-token"
+        db = tmp_path / "mcp_connect_fail.db"
+
+        # Real MCPAdapter instance whose connect() raises
+        real_mcp = MagicMock()
+        real_mcp.connect = AsyncMock(side_effect=RuntimeError("simulated MCP connection failure"))
+        real_mcp.disconnect = AsyncMock()
+        real_mcp.tools = {}
+
+        with patch(
+            "fxfill_banking_agent.bootstrap.MCPClientAdapter",
+            return_value=real_mcp,
+        ):
+            with pytest.raises(RuntimeError, match="simulated MCP connection"):
+                await bootstrap_app(db_path=str(db))
+
+        # The failing MCP instance was disconnected exactly once
+        real_mcp.disconnect.assert_called_once()
+
+        # No EventStore was ever created (failure happened before that)
+        assert not db.exists()
+
+        # No connections leak
+        from fxfill_banking_agent.db import _open_connections
+
+        assert len(_open_connections) == 0
+
+    @pytest.mark.asyncio
+    async def test_event_store_connect_failure_closes_failing_instance(
+        self, tmp_path: Path
+    ) -> None:
+        """EventStore connect() failure: the failing EventStore instance is itself closed."""
+        os.environ["DEEPSEEK_API_TOKEN"] = "test-token"
+        db = tmp_path / "es_connect_fail.db"
+
+        # MCP succeeds normally
+        mock_mcp = MagicMock()
+        mock_mcp.connect = AsyncMock(return_value=None)
+        mock_mcp.disconnect = AsyncMock()
+        mock_mcp.tools = {}
+
+        # EventStore is constructed but connect() raises
+        failing_events = MagicMock()
+        failing_events.connect = AsyncMock(
+            side_effect=RuntimeError("simulated EventStore connection failure")
+        )
+        failing_events.close = AsyncMock()
+
+        with patch("fxfill_banking_agent.bootstrap.MCPClientAdapter", return_value=mock_mcp):
+            with patch(
+                "fxfill_banking_agent.bootstrap.SqliteEventStore",
+                return_value=failing_events,
+            ):
+                with pytest.raises(RuntimeError, match="simulated EventStore"):
+                    await bootstrap_app(db_path=str(db))
+
+        # The failing EventStore was closed exactly once
+        failing_events.close.assert_called_once()
+
+        # MCP was disconnected exactly once (already registered before EventStore)
+        mock_mcp.disconnect.assert_called_once()
+
+        # No connections leak
+        from fxfill_banking_agent.db import _open_connections
+
+        assert len(_open_connections) == 0
+
+    @pytest.mark.asyncio
+    async def test_partial_connect_rollback_closes_each_resource_once(self, tmp_path: Path) -> None:
+        """MCP connect failure: every registered resource is closed exactly once."""
+        os.environ["DEEPSEEK_API_TOKEN"] = "test-token"
+        db = tmp_path / "once.db"
+
+        real_mcp = MagicMock()
+        real_mcp.connect = AsyncMock(side_effect=RuntimeError("simulated MCP connection failure"))
+        real_mcp.disconnect = AsyncMock()
+        real_mcp.tools = {}
+
+        with patch(
+            "fxfill_banking_agent.bootstrap.MCPClientAdapter",
+            return_value=real_mcp,
+        ):
+            with pytest.raises(RuntimeError, match="simulated MCP connection"):
+                await bootstrap_app(db_path=str(db))
+
+        # MCP (the failing object) disconnected exactly once
+        real_mcp.disconnect.assert_called_once()
+
+        # No EventStore or HITL stores were created
+        assert not db.exists()
+
+        # No aiosqlite worker remains
+        from fxfill_banking_agent.db import _open_connections
+
+        assert len(_open_connections) == 0
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Construction-time HITL requirement
