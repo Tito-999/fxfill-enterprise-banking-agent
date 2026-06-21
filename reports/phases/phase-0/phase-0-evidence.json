@@ -1,0 +1,115 @@
+{
+  "schema": "fxfill-evidence/0.1.0",
+  "phase": "phase-0",
+  "status": "complete",
+  "timestamp": "2026-06-21T10:35:00Z",
+  "project": {
+    "name": "fxfill-enterprise-banking-agent",
+    "version": "0.1.0",
+    "head": "dc2bb58344da2aa3772bc790bd8994391b4dbd35"
+  },
+  "upstream": {
+    "repository": "https://github.com/sierra-research/tau2-bench",
+    "pinned_commit": "5ebebbe827b455b3ed04fcb9294235c6ef4e5fd6",
+    "branch": "main",
+    "domain": "banking_knowledge",
+    "integration_mode": "external-pinned-upstream",
+    "upstream_path": "../tau2-bench-upstream",
+    "official_evaluation_mode": "manual-outside-claude-code",
+    "python_requires": ">=3.12,<3.14",
+    "verified": true,
+    "upstream_head_matches_pin": true,
+    "upstream_repo_clean": true
+  },
+  "acceptance": {
+    "criteria": [
+      {"id": "1", "name": "upstream-commit-verified", "status": "pass", "detail": "5ebebbe matches"},
+      {"id": "2", "name": "package-installs-and-imports", "status": "pass", "detail": "import fxfill_banking_agent succeeds"},
+      {"id": "3", "name": "config-models-validate", "status": "pass", "detail": "16 config tests pass"},
+      {"id": "4", "name": "evidence-models", "status": "pass", "detail": "14 evidence tests pass"},
+      {"id": "5", "name": "upstream-lock-parsed", "status": "pass", "detail": "6 upstream tests pass"},
+      {"id": "6", "name": "ruff-lint", "status": "pass", "detail": "All checks passed!"},
+      {"id": "7", "name": "ruff-format", "status": "pass", "detail": "10 files already formatted"},
+      {"id": "8", "name": "mypy-strict", "status": "pass", "detail": "Success: no issues found in 4 source files"},
+      {"id": "9", "name": "no-langgraph-dependency", "status": "pass", "detail": "grep found no langgraph or langchain imports"},
+      {"id": "10", "name": "no-mcp-dependency", "status": "pass", "detail": "Only MCPConfig schema; no MCP runtime dependency"},
+      {"id": "11", "name": "no-real-llm-calls", "status": "pass", "detail": "No litellm, openai, or anthropic SDK imports"},
+      {"id": "12", "name": "no-benchmark-internals", "status": "pass", "detail": "No imports from tau2 evaluator or task internals"},
+      {"id": "13", "name": "upstream-unchanged", "status": "pass", "detail": "git status clean in upstream repo"},
+      {"id": "14", "name": "adrs-present", "status": "pass", "detail": "5 ADRs covering all required subjects"},
+      {"id": "15", "name": "spec-and-roadmap", "status": "pass", "detail": "SPEC.md and ROADMAP.md present"},
+      {"id": "16", "name": "machine-readable-evidence", "status": "pass", "detail": "phase-0-evidence.json present"}
+    ]
+  },
+  "verification_commands": [
+    {
+      "command": "uv run pytest -q",
+      "exit_code": 0,
+      "stdout": "38 passed in 0.31s",
+      "stderr": ""
+    },
+    {
+      "command": "uv run ruff check .",
+      "exit_code": 0,
+      "stdout": "All checks passed!",
+      "stderr": ""
+    },
+    {
+      "command": "uv run ruff format --check .",
+      "exit_code": 0,
+      "stdout": "10 files already formatted",
+      "stderr": ""
+    },
+    {
+      "command": "uv run mypy src",
+      "exit_code": 0,
+      "stdout": "Success: no issues found in 4 source files",
+      "stderr": ""
+    },
+    {
+      "command": "git -C /mnt/f/projects/tau2-bench-upstream status --short",
+      "exit_code": 0,
+      "stdout": "",
+      "stderr": ""
+    },
+    {
+      "command": "git -C /mnt/f/projects/tau2-bench-upstream rev-parse HEAD",
+      "exit_code": 0,
+      "stdout": "5ebebbe827b455b3ed04fcb9294235c6ef4e5fd6",
+      "stderr": ""
+    }
+  ],
+  "artifacts": [
+    {"path": ".gitignore", "sha256": "49c4ef282fb2ffd51eafb3787f9815ec187e7e581a375d9417c7370d441f278c"},
+    {"path": "pyproject.toml", "sha256": "1284d1b70b6d2989f8b26903ebc3325930f7cd677e57cf57da4f5c7f6f0f46b4"},
+    {"path": "uv.lock", "sha256": "cb973c87bd870e452caa200baed56daff334fff29fd6c31c801ac447b31a8695"},
+    {"path": "SPEC.md", "sha256": "7448e44f91f8493e2c9930fe9d715b2aed553e69d4381c2e8c1b68b035dfe986"},
+    {"path": "ROADMAP.md", "sha256": "e3fab20dbfc858ba909e22c4912ed0c49790316367630a1e195b3e8125222554"},
+    {"path": "docs/adr/001-langgraph-agent-runtime.md", "sha256": "e572831b2050a9ae133b2562ac166c77e4144039a9e11677bdfce620adeaa002"},
+    {"path": "docs/adr/002-mcp-tool-boundaries.md", "sha256": "17407ac270875e22a91308455d10501f39eb12e4c7bd25c4864eff7779b6e870"},
+    {"path": "docs/adr/003-reasoning-validation-separation.md", "sha256": "2b06731137b5d49734b194e91ef19d15e73d503ea77884aad7ceb511a2fdce79"},
+    {"path": "docs/adr/004-authorization-before-side-effects.md", "sha256": "0d78f12349163a5203eedab07f6277eb512ac3bacb5a28b7f6978e9dde5a7676"},
+    {"path": "docs/adr/005-upstream-read-only.md", "sha256": "6f310d332fb3e9901f73ab0a6330e9f5b04a040e2c6cbecb4912b2f7abd5b32e"},
+    {"path": "docs/development.md", "sha256": "706b8878282e7e736015ecd02ff01b777c4c83dd0173a5989e1958de90aa40cb"},
+    {"path": "reports/phases/phase-0/README.md", "sha256": "c4b854f22a723cc44a28bf4c469cabde5821d8ff9e441c9a96ebcf97bb94813a"},
+    {"path": "src/fxfill_banking_agent/__init__.py", "sha256": "a10682e9795fe01030eb6f4540dcf1f268efbde390e6816082989197406455ac"},
+    {"path": "src/fxfill_banking_agent/config.py", "sha256": "d902cd5e87e32ecaf0b247900b5179e86ea5b8672fab20890ea2dc634e6d5ce4"},
+    {"path": "src/fxfill_banking_agent/evidence.py", "sha256": "469f6bc87d5a7ff37a3d56be13db28ed44f3617d040dfce6f2f5e664e6031b7e"},
+    {"path": "src/fxfill_banking_agent/upstream.py", "sha256": "abdd0bd84ecf1258de3d964625deac73deb8bb11d36a1e16e2d515e724b951fd"},
+    {"path": "src/fxfill_banking_agent/config.py", "sha256": "d902cd5e87e32ecaf0b247900b5179e86ea5b8672fab20890ea2dc634e6d5ce4"},
+    {"path": "src/fxfill_banking_agent/evidence.py", "sha256": "469f6bc87d5a7ff37a3d56be13db28ed44f3617d040dfce6f2f5e664e6031b7e"},
+    {"path": "src/fxfill_banking_agent/upstream.py", "sha256": "abdd0bd84ecf1258de3d964625deac73deb8bb11d36a1e16e2d515e724b951fd"},
+    {"path": "tests/__init__.py", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+    {"path": "tests/unit/__init__.py", "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"},
+    {"path": "tests/unit/test_config.py", "sha256": "01c84c743923d68b800cea00fab96e3a6c173e45d15e4b1f3acde5617f97e240"},
+    {"path": "tests/unit/test_evidence.py", "sha256": "aef9d6cc30387941fda71b2b4dd010a35df57ce8e1382b52fbdebff13cb30338"},
+    {"path": "tests/unit/test_upstream.py", "sha256": "3bbb62b946e4bb2a7300abd91da360b13b1c7614d13d0cf350649ec8e7bf43de"}
+  ],
+  "adr_coverage": [
+    {"number": 1, "subject": "langgraph-agent-runtime", "addresses": ["runtime-framework"]},
+    {"number": 2, "subject": "mcp-tool-boundaries", "addresses": ["tool-isolation", "project-boundary"]},
+    {"number": 3, "subject": "reasoning-validation-separation", "addresses": ["evaluation-separation"]},
+    {"number": 4, "subject": "authorization-before-side-effects", "addresses": ["project-boundary"]},
+    {"number": 5, "subject": "upstream-read-only", "addresses": ["benchmark-integrity", "project-boundary", "evaluation-separation"]}
+  ]
+}
