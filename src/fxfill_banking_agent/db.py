@@ -19,7 +19,7 @@ from fxfill_banking_agent.logging import get_logger
 
 logger = get_logger(__name__)
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 3
 
 
 async def init_database(
@@ -75,10 +75,12 @@ async def init_database(
                 f"{schema_version}. Cannot downgrade."
             )
 
-        if current < 1:
+        if current < 1 and schema_version >= 1:
             await _migrate_v1(conn)
-        if current < 2:
+        if current < 2 and schema_version >= 2:
             await _migrate_v2(conn)
+        if current < 3 and schema_version >= 3:
+            await _migrate_v3(conn)
 
         if current < schema_version:
             await conn.execute(
@@ -205,3 +207,92 @@ async def _migrate_v2(conn: aiosqlite.Connection) -> None:
     )
     await conn.commit()
     logger.info("migration_v2_complete")
+
+
+async def _migrate_v3(conn: aiosqlite.Connection) -> None:
+    """Add uniqueness constraints and indexes to approved_operation_grants.
+
+    Rebuilds the table with proper constraints. Duplicate rows are
+    detected and the migration will fail with a clear error if
+    unsafe duplicates exist.
+    """
+    # Check for duplicate session_ids
+    cursor = await conn.execute(
+        "SELECT session_id, COUNT(*) as cnt FROM approved_operation_grants "
+        "GROUP BY session_id HAVING cnt > 1"
+    )
+    dup_sessions = await cursor.fetchall()
+    await cursor.close()
+
+    # Check for duplicate idempotency_keys
+    cursor = await conn.execute(
+        "SELECT idempotency_key, COUNT(*) as cnt FROM approved_operation_grants "
+        "WHERE idempotency_key IS NOT NULL AND idempotency_key != '' "
+        "GROUP BY idempotency_key HAVING cnt > 1"
+    )
+    dup_keys = await cursor.fetchall()
+    await cursor.close()
+
+    if dup_sessions:
+        ids = [r["session_id"] for r in dup_sessions]
+        raise RuntimeError(
+            f"Cannot migrate to v3: duplicate session_id rows found: {ids}. "
+            f"Manual reconciliation required."
+        )
+    if dup_keys:
+        keys = [r["idempotency_key"] for r in dup_keys]
+        raise RuntimeError(
+            f"Cannot migrate to v3: duplicate idempotency_key rows found: {keys}. "
+            f"Manual reconciliation required."
+        )
+
+    # Create replacement table with proper constraints
+    await conn.execute(
+        "CREATE TABLE approved_operation_grants_v3 ("
+        "  session_id TEXT NOT NULL PRIMARY KEY,"
+        "  requesting_user_id TEXT NOT NULL,"
+        "  approving_actor_id TEXT NOT NULL,"
+        "  thread_id TEXT NOT NULL,"
+        "  run_id TEXT,"
+        "  checkpoint_id TEXT,"
+        "  tool_call_id TEXT NOT NULL,"
+        "  tool_name TEXT NOT NULL,"
+        "  canonical_tool_args TEXT NOT NULL,"
+        "  argument_digest TEXT NOT NULL,"
+        "  idempotency_key TEXT NOT NULL UNIQUE,"
+        "  decision TEXT NOT NULL CHECK(decision IN ('PENDING','approved','rejected')),"
+        "  status TEXT NOT NULL DEFAULT 'PENDING' "
+        "    CHECK(status IN ('PENDING','APPROVED','CONSUMING','CONSUMED',"
+        "    'REJECTED','EXPIRED','FAILED','UNKNOWN')),"
+        "  created_at TEXT NOT NULL,"
+        "  approved_at TEXT,"
+        "  expires_at TEXT,"
+        "  consuming_at TEXT,"
+        "  consumed_at TEXT,"
+        "  failed_at TEXT,"
+        "  version INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    # Copy data from old table
+    await conn.execute(
+        "INSERT INTO approved_operation_grants_v3 SELECT * FROM approved_operation_grants"
+    )
+    await conn.execute("DROP TABLE approved_operation_grants")
+    await conn.execute(
+        "ALTER TABLE approved_operation_grants_v3 RENAME TO approved_operation_grants"
+    )
+    # Add indexes
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grants_session ON approved_operation_grants(session_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grants_status ON approved_operation_grants(status)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grants_expires ON approved_operation_grants(expires_at)"
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_grants_idem_key ON approved_operation_grants(idempotency_key)"
+    )
+    await conn.commit()
+    logger.info("migration_v3_complete")

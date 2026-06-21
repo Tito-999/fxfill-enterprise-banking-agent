@@ -16,6 +16,7 @@ from fxfill_banking_agent.auth import (
     OperationKind,
 )
 from fxfill_banking_agent.config import AgentConfig
+from fxfill_banking_agent.grant_repo import GrantRepository
 from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.hitl_store import HITLSession, HITLSessionStatus, SqliteHITLStore
 from fxfill_banking_agent.llm import LLMProvider
@@ -62,6 +63,7 @@ def create_app(
     config: AgentConfig | None = None,
     auth_gateway: AuthorizationGateway | None = None,
     hitl_store: SqliteHITLStore | None = None,
+    grant_repo: "GrantRepository | None" = None,
 ) -> FastAPI:
     """Create the FastAPI application with durable HITL store.
 
@@ -196,60 +198,49 @@ def create_app(
                 "result": {"final_answer": "Operation was rejected by human operator."},
             }
 
-        # Approve: mark as APPROVED then resume with exact-match grant
+        # Approve: use durable grant repository for exact-operation execution
+        if grant_repo is None:
+            raise HTTPException(status_code=501, detail="Grant repository not configured")
+
         ok = await _hitl.update_status(
             session.session_id, HITLSessionStatus.APPROVED, expected_version=session.version
         )
         if not ok:
             raise HTTPException(status_code=409, detail="Concurrent modification detected")
 
-        # Create exact-match grant — authorizes only the approved operation
-        from datetime import datetime as _dt
-        from datetime import timezone as _tz
-
-        from fxfill_banking_agent.auth import ApprovedOperationGrant, ApprovedOperationGrantPolicy
-
-        now = _dt.now(_tz.utc).isoformat()
-        grant = ApprovedOperationGrant(
+        # Atomic claim: exactly one caller wins the CONSUMING transition
+        claimed = await grant_repo.atomic_consume(
             session_id=session.session_id,
-            approving_user=request.approver,
-            requesting_user=session.user_id,
+            user_id=session.user_id,
             thread_id=session.thread_id,
+            tool_call_id=session.idempotency_key or "",
             tool_name=session.tool_name,
             tool_args=session.tool_args,
             idempotency_key=session.idempotency_key or "",
-            decision="approved",
-            created_at=now,
-            expires_at=session.expires_at,
-            consumed=False,
-            version=session.version + 1,
+            version=1,
         )
-
-        # Resume with exact-match policy — not blanket AutoApprovePolicy
-        resume_gateway = AuthorizationGateway(policy=ApprovedOperationGrantPolicy(grant))
-        resume_runtime = AgentRuntime(
-            config=agent_cfg,
-            llm=llm,
-            mcp_client=mcp_client,
-            auth_gateway=resume_gateway,
-        )
-
-        try:
-            result = await resume_runtime.run(
-                f"Resume session {session.session_id}",
-                run_id=session.session_id,
-                resume_from_state={
-                    "messages": [],
-                    "step_count": 0,
-                    "executed_tool_ids": set(),
-                },
+        if claimed is None:
+            raise HTTPException(
+                status_code=409, detail="Grant already consumed or conditions mismatch"
             )
-            # Mark session as RESUMED after successful execution
+
+        # Execute the exact stored MCP tool call — no LLM, no synthetic prompt
+        from fxfill_banking_agent.mcp_client import ToolCall
+
+        tool_call = ToolCall(name=claimed.tool_name, arguments=session.tool_args)
+        try:
+            mcp_result = await mcp_client.call_tool(tool_call)
+        except Exception as exc:
+            await grant_repo.mark_failed(session.session_id)
             await _hitl.update_status(
                 session.session_id,
-                HITLSessionStatus.RESUMED,
+                HITLSessionStatus.FAILED,
                 expected_version=session.version + 1,
             )
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        if mcp_result.success:
+            await grant_repo.mark_consumed(session.session_id)
             await _hitl.update_status(
                 session.session_id,
                 HITLSessionStatus.RESUMED,
@@ -258,17 +249,16 @@ def create_app(
             return {
                 "session_id": session.session_id,
                 "decision": "approved",
-                "result": {
-                    "answer": result.get("final_answer"),
-                    "step_count": result.get("step_count", 0),
-                },
+                "result": {"answer": mcp_result.content, "step_count": 0},
             }
-        except Exception as exc:
-            await _hitl.update_status(
-                session.session_id,
-                HITLSessionStatus.FAILED,
-                expected_version=session.version + 1,
-            )
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+        # Uncertain/failed MCP outcome — fail closed
+        await grant_repo.mark_failed(session.session_id)
+        await _hitl.update_status(
+            session.session_id,
+            HITLSessionStatus.FAILED,
+            expected_version=session.version + 1,
+        )
+        raise HTTPException(status_code=500, detail=f"MCP tool failed: {mcp_result.error}")
 
     return app

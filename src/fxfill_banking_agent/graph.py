@@ -154,13 +154,14 @@ async def _tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
 
         if decision.decision == ApprovalDecision.PENDING:
             # Typed domain signal — not an unexpected runtime failure
+            sid = state.get("session_id") or "unknown"
             raise HITLPending(
                 tool_name=tool_name,
                 tool_args=tc.get("args", {}),
                 tool_call_id=tool_id,
-                session_id=state.get("session_id", "unknown"),
-                thread_id=state.get("session_id", "unknown"),
-                idempotency_key=f"{state.get('session_id', 'unknown')}:{tool_id}",
+                session_id=sid,
+                thread_id=sid,
+                idempotency_key=f"{sid}:{tool_id}",
             )
 
         # Approved — check durable idempotency before execution
