@@ -152,6 +152,7 @@ def create_app(
                     status=HITLSessionStatus.PENDING,
                     tool_name=pause.tool_name,
                     tool_args=pause.tool_args,
+                    tool_call_id=pause.tool_call_id,
                     authorization_decision="PENDING",
                     approval_requirement="required",
                     idempotency_key=idem_key,
@@ -172,7 +173,7 @@ def create_app(
                     thread_id=pause.thread_id or session_id,
                     run_id=session_id,
                     checkpoint_id="",
-                    tool_call_id=pause.tool_name,
+                    tool_call_id=pause.tool_call_id,
                     tool_name=pause.tool_name,
                     canonical_tool_args=canonical_args,
                     argument_digest=arg_digest,
@@ -205,91 +206,22 @@ def create_app(
 
     @app.post("/agent/approve", response_model=ApprovalResponse)
     async def approve_endpoint(request: ApprovalRequest) -> dict[str, Any]:
-        # route.request.approver is an untrusted note; never used for authorization.
-        if approval_executor is not None:
-            context = None  # Trusted identity comes from request auth, not body
-            if request.decision == "reject":
-                result = await approval_executor.reject(request.session_id, context)
-            else:
-                result = await approval_executor.approve(request.session_id, context)
-            _map_executor_result(result)  # raises HTTPException on error
-            return {
-                "session_id": result.session_id,
-                "decision": result.decision,
-                "result": {"answer": result.answer, "step_count": result.step_count}
-                if result.answer
-                else None,
-            }
-
-        # Legacy fallback: only for tests without full executor wiring
-        if _hitl is None:
-            raise HTTPException(status_code=501, detail="HITL store not configured")
-        session = await _hitl.get(request.session_id)
-        if session is None:
-            raise HTTPException(status_code=404, detail=f"No session: {request.session_id}")
-        if session.is_terminal():
-            raise HTTPException(status_code=409, detail=f"Already {session.status.value}")
-        if session.is_expired():
-            await _hitl.update_status(
-                session.session_id, HITLSessionStatus.EXPIRED, expected_version=session.version
-            )
-            raise HTTPException(status_code=410, detail="Session expired")
-
+        # request.approver is an untrusted note; never used for authorization
+        if approval_executor is None:
+            raise HTTPException(status_code=501, detail="HITL approval executor not configured")
+        context = None
         if request.decision == "reject":
-            if not await _hitl.update_status(
-                session.session_id, HITLSessionStatus.REJECTED, expected_version=session.version
-            ):
-                raise HTTPException(status_code=409, detail="Concurrent modification")
-            if grant_repo is not None:
-                await grant_repo.mark_rejected(session.session_id)
-            return {
-                "session_id": session.session_id,
-                "decision": "rejected",
-                "result": {"final_answer": "Operation was rejected."},
-            }
-
-        if grant_repo is None:
-            raise HTTPException(status_code=501, detail="Grant repository not configured")
-        if not await grant_repo.approve_pending(session.session_id, "operator", expected_version=1):
-            raise HTTPException(status_code=409, detail="Grant approve failed")
-        if not await _hitl.update_status(
-            session.session_id, HITLSessionStatus.APPROVED, expected_version=session.version
-        ):
-            raise HTTPException(status_code=409, detail="Session update failed")
-        claimed = await grant_repo.atomic_consume(
-            session_id=session.session_id,
-            user_id=session.user_id,
-            approving_actor_id="operator",
-            thread_id=session.thread_id,
-            tool_call_id=session.tool_name,
-            tool_name=session.tool_name,
-            tool_args=session.tool_args,
-            idempotency_key=session.idempotency_key or "",
-            version=1,
-        )
-        if claimed is None:
-            raise HTTPException(status_code=409, detail="Grant already consumed")
-        exec_args = json.loads(claimed.canonical_tool_args)
-        from fxfill_banking_agent.mcp_client import ToolCall
-
-        mcp_result = await mcp_client.call_tool(
-            ToolCall(name=claimed.tool_name, arguments=exec_args)
-        )
-        if mcp_result.success:
-            await grant_repo.mark_consumed(session.session_id)
-            await _hitl.update_status(
-                session.session_id, HITLSessionStatus.RESUMED, expected_version=session.version + 1
-            )
-            return {
-                "session_id": session.session_id,
-                "decision": "approved",
-                "result": {"answer": mcp_result.content, "step_count": 0},
-            }
-        await grant_repo.mark_failed(session.session_id)
-        await _hitl.update_status(
-            session.session_id, HITLSessionStatus.FAILED, expected_version=session.version + 1
-        )
-        raise HTTPException(status_code=500, detail=f"MCP failed: {mcp_result.error}")
+            result = await approval_executor.reject(request.session_id, context)
+        else:
+            result = await approval_executor.approve(request.session_id, context)
+        _map_executor_result(result)
+        return {
+            "session_id": result.session_id,
+            "decision": result.decision,
+            "result": {"answer": result.answer, "step_count": result.step_count}
+            if result.answer
+            else None,
+        }
 
     def _map_executor_result(result: ApprovalResult) -> None:
         if result.error:

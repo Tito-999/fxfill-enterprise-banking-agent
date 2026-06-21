@@ -32,6 +32,7 @@ async def bootstrap_app(
     provider_config: ProviderConfig | None = None,
     db_path: str | None = None,
     production_mode: bool = False,
+    approval_actor_resolver: ApprovalActorResolver | None = None,
 ):
     """Bootstrap the complete production application.
 
@@ -100,13 +101,16 @@ async def bootstrap_app(
         event_store = None
 
     # ── Actor resolver ─────────────────────────────────────────────
-    actor_resolver: ApprovalActorResolver
-    if production_mode:
-        raise RuntimeError(
-            "Production actor resolver not configured — must provide authenticated identity"
-        )
+    if approval_actor_resolver is not None:
+        actor_resolver = approval_actor_resolver
+    elif production_mode:
+        raise RuntimeError("Production mode requires approval_actor_resolver")
     else:
         actor_resolver = DevelopmentHeaderResolver()
+
+    # Reject DevelopmentHeaderResolver in production
+    if production_mode and isinstance(actor_resolver, DevelopmentHeaderResolver):
+        raise RuntimeError("DevelopmentHeaderResolver not allowed in production mode")
 
     # ── HITL Approval Executor ─────────────────────────────────────
     if db_path and hitl_store and grant_repo and idem_store and event_store:

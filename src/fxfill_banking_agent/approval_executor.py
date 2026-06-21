@@ -111,7 +111,7 @@ class HITLApprovalExecutor:
             approving_actor_id=actor.actor_id,
             thread_id=session.thread_id,
             run_id=session_id,
-            tool_call_id=session.tool_name,
+            tool_call_id=session.tool_call_id or session.tool_name,
             tool_name=session.tool_name,
             tool_args=session.tool_args,
             idempotency_key=session.idempotency_key or "",

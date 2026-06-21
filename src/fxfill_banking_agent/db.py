@@ -19,7 +19,7 @@ from fxfill_banking_agent.logging import get_logger
 
 logger = get_logger(__name__)
 
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 # Track open connections for deterministic shutdown
 _open_connections: list[aiosqlite.Connection] = []
@@ -96,6 +96,8 @@ async def init_database(
             await _migrate_v2(conn)
         if current < 3 and schema_version >= 3:
             await _migrate_v3(conn)
+        if current < 4 and schema_version >= 4:
+            await _migrate_v4(conn)
 
         if current < schema_version:
             await conn.execute(
@@ -311,3 +313,10 @@ async def _migrate_v3(conn: aiosqlite.Connection) -> None:
     )
     await conn.commit()
     logger.info("migration_v3_complete")
+
+
+async def _migrate_v4(conn: aiosqlite.Connection) -> None:
+    """Add tool_call_id column to hitl_sessions."""
+    await conn.execute("ALTER TABLE hitl_sessions ADD COLUMN tool_call_id TEXT NOT NULL DEFAULT ''")
+    await conn.commit()
+    logger.info("migration_v4_complete")

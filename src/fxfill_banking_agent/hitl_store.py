@@ -45,6 +45,7 @@ class HITLSession:
     created_at: str
     updated_at: str
     expires_at: str | None
+    tool_call_id: str = ""
 
     def is_terminal(self) -> bool:
         return self.status in (
@@ -91,10 +92,10 @@ class SqliteHITLStore:
         conn = await self._ensure_connected()
         await conn.execute(
             "INSERT INTO hitl_sessions "
-            "(session_id, user_id, thread_id, status, tool_name, tool_args, "
+            "(session_id, user_id, thread_id, status, tool_name, tool_args, tool_call_id, "
             " authorization_decision, approval_requirement, idempotency_key, "
             " version, created_at, updated_at, expires_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 session.session_id,
                 session.user_id,
@@ -102,6 +103,7 @@ class SqliteHITLStore:
                 session.status.value,
                 session.tool_name,
                 json.dumps(session.tool_args),
+                session.tool_call_id,
                 session.authorization_decision,
                 session.approval_requirement,
                 session.idempotency_key,
@@ -179,6 +181,7 @@ def _row_to_hitl_session(row: aiosqlite.Row) -> HITLSession:
         status=HITLSessionStatus(row["status"]),
         tool_name=row["tool_name"],
         tool_args=json.loads(row["tool_args"]),
+        tool_call_id=row["tool_call_id"] if "tool_call_id" in row.keys() else "",
         authorization_decision=row["authorization_decision"],
         approval_requirement=row["approval_requirement"],
         idempotency_key=row["idempotency_key"],

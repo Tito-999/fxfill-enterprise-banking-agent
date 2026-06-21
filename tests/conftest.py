@@ -41,6 +41,10 @@ def _install_all_patches():
     def _patched_create(*a, **kw):
         if not kw.get("auth_gateway"):
             kw["auth_gateway"] = AuthorizationGateway(policy=AutoApprovePolicy())
+        # Auto-inject executor for HITL-enabled tests
+        if not kw.get("approval_executor") and kw.get("hitl_store") and kw.get("grant_repo"):
+            # Create executor with test deps (creates temp DB stores)
+            pass  # Too complex — let tests provide executors explicitly
         return _orig_create(*a, **kw)
 
     api.create_app = _patched_create
