@@ -3,6 +3,10 @@
 Provides idempotent schema creation with explicit version tracking.
 All storage modules (checkpoint, HITL, idempotency, events) share this
 initialization path.
+
+**Connection safety:** Every exception after ``aiosqlite.connect()``
+closes the connection before re-raising so the worker thread exits and
+the calling process can terminate cleanly.
 """
 
 from __future__ import annotations
@@ -26,52 +30,71 @@ async def init_database(
     Creates the schema-version table and runs forward migrations up to
     ``schema_version``. Fails if the database has a future schema version.
 
+    The returned connection is open and ready for use.  The caller is
+    responsible for closing it.
+
     Args:
         db_path: Path to the SQLite database file.
         schema_version: Expected schema version.
 
     Returns:
-        An open aiosqlite connection.
+        An open ``aiosqlite.Connection``.
 
     Raises:
         RuntimeError: If the database has a schema version higher than
             ``schema_version`` (future/incompatible).
+        aiosqlite.Error: On database-level failures (corrupt file, etc.).
+        OSError: On filesystem-level failures.
     """
     db_path = Path(db_path)
     db_path.parent.mkdir(parents=True, exist_ok=True)
 
-    conn = await aiosqlite.connect(str(db_path))
-    conn.row_factory = aiosqlite.Row
+    conn: aiosqlite.Connection | None = None
+    try:
+        conn = await aiosqlite.connect(str(db_path))
+        conn.row_factory = aiosqlite.Row
 
-    await conn.execute("PRAGMA journal_mode=WAL")
-    await conn.execute("PRAGMA foreign_keys=ON")
+        await conn.execute("PRAGMA journal_mode=WAL")
+        await conn.execute("PRAGMA foreign_keys=ON")
 
-    # Schema version table
-    await conn.execute("CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)")
-
-    cursor = await conn.execute("SELECT version FROM _schema_version ORDER BY version DESC LIMIT 1")
-    row = await cursor.fetchone()
-    current = row["version"] if row else 0
-
-    if current > schema_version:
-        await conn.close()
-        raise RuntimeError(
-            f"Database schema version {current} is newer than expected {schema_version}. "
-            f"Cannot downgrade."
-        )
-
-    if current < 1:
-        await _migrate_v1(conn)
-
-    if current < schema_version:
+        # Schema version table
         await conn.execute(
-            "INSERT OR REPLACE INTO _schema_version (version) VALUES (?)",
-            (schema_version,),
+            "CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)"
         )
-        await conn.commit()
 
-    logger.info("database_initialized", path=str(db_path), version=schema_version)
-    return conn
+        cursor = await conn.execute(
+            "SELECT version FROM _schema_version ORDER BY version DESC LIMIT 1"
+        )
+        row = await cursor.fetchone()
+        await cursor.close()
+        current = row["version"] if row else 0
+
+        if current > schema_version:
+            raise RuntimeError(
+                f"Database schema version {current} is newer than expected "
+                f"{schema_version}. Cannot downgrade."
+            )
+
+        if current < 1:
+            await _migrate_v1(conn)
+
+        if current < schema_version:
+            await conn.execute(
+                "INSERT OR REPLACE INTO _schema_version (version) VALUES (?)",
+                (schema_version,),
+            )
+            await conn.commit()
+
+        logger.info("database_initialized", path=str(db_path), version=schema_version)
+        return conn
+
+    except BaseException:
+        if conn is not None:
+            try:
+                await conn.close()
+            except BaseException:
+                pass  # Best-effort close on the way out
+        raise
 
 
 async def _migrate_v1(conn: aiosqlite.Connection) -> None:

@@ -407,17 +407,30 @@ class TestFullRestartWorkflow:
 
 
 class TestProcessBoundary:
+    # Shared subprocess-safe runner
+    @staticmethod
+    def _run_subprocess(code: str, *, timeout: int = 10) -> subprocess.CompletedProcess:
+        try:
+            return subprocess.run(
+                [sys.executable, "-c", code],
+                capture_output=True,
+                text=True,
+                stdin=subprocess.DEVNULL,
+                timeout=timeout,
+                cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise AssertionError(
+                f"Subprocess timed out after {timeout}s.\n"
+                f"stdout so far: {exc.stdout}\nstderr so far: {exc.stderr}"
+            ) from exc
+
     def test_sqlite_data_survives_python_process(self, tmp_path: Path) -> None:
         """Process A writes data, exits. Process B reads it back."""
         db = tmp_path / "proc_boundary.db"
         db_abs = str(db.absolute())
 
-        # Process A: write
-        result_a = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                f"""
+        result_a = self._run_subprocess(f"""
 import asyncio
 from fxfill_banking_agent.db import init_database
 from fxfill_banking_agent.hitl_store import SqliteHITLStore, HITLSession, HITLSessionStatus
@@ -438,21 +451,11 @@ async def main():
     print('OK')
 
 asyncio.run(main())
-""",
-            ],
-            capture_output=True,
-            text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
-        )
+""")
         assert result_a.returncode == 0, f"Process A failed: {result_a.stderr}"
         assert "OK" in result_a.stdout
 
-        # Process B: read
-        result_b = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                f"""
+        result_b = self._run_subprocess(f"""
 import asyncio
 from fxfill_banking_agent.hitl_store import SqliteHITLStore
 
@@ -465,26 +468,17 @@ async def main():
     print('VERIFIED')
 
 asyncio.run(main())
-""",
-            ],
-            capture_output=True,
-            text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
-        )
+""")
         assert result_b.returncode == 0, f"Process B failed: {result_b.stderr}"
         assert "VERIFIED" in result_b.stdout
 
     def test_corrupted_checkpoint_handled(self, tmp_path: Path) -> None:
-        """Reading from a non-existent/corrupt database fails gracefully."""
+        """Reading from a corrupt database fails gracefully and exits cleanly."""
         db = tmp_path / "corrupt.db"
         db_abs = str(db.absolute())
-        # Write garbage
         db.write_text("not a valid sqlite database")
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                f"""
+
+        result = self._run_subprocess(f"""
 import asyncio
 from fxfill_banking_agent.checkpoint_store import SqliteCheckpointSaver
 async def main():
@@ -495,23 +489,40 @@ async def main():
     except Exception as e:
         print(f'EXPECTED_ERROR: {{type(e).__name__}}')
 asyncio.run(main())
-""",
-            ],
-            capture_output=True,
-            text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+""")
+        assert "EXPECTED_ERROR" in result.stdout, (
+            f"Expected error on corrupt db, got stdout={result.stdout} stderr={result.stderr}"
         )
-        assert "EXPECTED_ERROR" in result.stdout or result.returncode != 0
+        assert result.returncode == 0, f"Subprocess should exit 0, got {result.returncode}"
+
+    def test_truncated_sqlite_file(self, tmp_path: Path) -> None:
+        """A truncated SQLite file must produce an error and exit cleanly."""
+        db = tmp_path / "truncated.db"
+        db_abs = str(db.absolute())
+        # Write a valid SQLite header then truncate (not a complete database)
+        db.write_bytes(b"SQLite format 3\0" + b"\0" * 90)
+
+        result = self._run_subprocess(f"""
+import asyncio
+from fxfill_banking_agent.db import init_database
+async def main():
+    try:
+        await init_database('{db_abs}')
+        print('UNEXPECTED_SUCCESS')
+    except Exception as e:
+        print(f'EXPECTED_ERROR: {{type(e).__name__}}')
+asyncio.run(main())
+""")
+        assert "EXPECTED_ERROR" in result.stdout, (
+            f"Expected error on truncated db, got stdout={result.stdout} stderr={result.stderr}"
+        )
 
     def test_incompatible_schema_version_fails(self, tmp_path: Path) -> None:
         """A database with a future schema version must fail initialization."""
         db = tmp_path / "future.db"
         db_abs = str(db.absolute())
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-c",
-                f"""
+
+        result = self._run_subprocess(f"""
 import asyncio, aiosqlite
 async def main():
     conn = await aiosqlite.connect('{db_abs}')
@@ -526,10 +537,71 @@ async def main():
     except RuntimeError as e:
         print(f'EXPECTED: {{e}}')
 asyncio.run(main())
-""",
-            ],
-            capture_output=True,
-            text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+""")
+        assert "EXPECTED" in result.stdout, (
+            f"Expected schema version error, got stdout={result.stdout} stderr={result.stderr}"
         )
-        assert "EXPECTED" in result.stdout
+
+    def test_valid_db_after_corrupt_db(self, tmp_path: Path) -> None:
+        """A valid database can still be opened after a corrupt database fails."""
+        corrupt = tmp_path / "corrupt2.db"
+        corrupt_abs = str(corrupt.absolute())
+        corrupt.write_text("garbage not sqlite")
+
+        # First, try the corrupt one — must fail
+        r1 = self._run_subprocess(f"""
+import asyncio
+from fxfill_banking_agent.db import init_database
+async def main():
+    try:
+        await init_database('{corrupt_abs}')
+        print('UNEXPECTED_SUCCESS')
+    except Exception as e:
+        print(f'EXPECTED: {{type(e).__name__}}')
+asyncio.run(main())
+""")
+        assert "EXPECTED" in r1.stdout, f"Corrupt db should fail: {r1.stdout} {r1.stderr}"
+
+        # Then, open a valid database — must succeed
+        valid = tmp_path / "valid_after_corrupt.db"
+        valid_abs = str(valid.absolute())
+        r2 = self._run_subprocess(f"""
+import asyncio
+from fxfill_banking_agent.db import init_database
+async def main():
+    conn = await init_database('{valid_abs}')
+    await conn.close()
+    print('OK')
+asyncio.run(main())
+""")
+        assert "OK" in r2.stdout, f"Valid db should open: {r2.stdout} {r2.stderr}"
+        assert r2.returncode == 0
+
+    def test_thread_cleanup_after_init_failure(self, tmp_path: Path) -> None:
+        """After init_database fails, the aiosqlite worker thread exits cleanly."""
+        db = tmp_path / "bad.db"
+        db_abs = str(db.absolute())
+        db.write_text("definitely not sqlite")
+
+        # Run: try to init, assert failure, verify process exits promptly
+        result = self._run_subprocess(f"""
+import asyncio, sys
+from fxfill_banking_agent.db import init_database
+
+async def main():
+    try:
+        await init_database('{db_abs}')
+        print('UNEXPECTED_SUCCESS')
+        sys.exit(1)
+    except Exception:
+        print('CAUGHT')
+        # The critical assertion: the process must exit without hanging.
+        # If the aiosqlite thread leaked, asyncio.run() would hang here.
+
+asyncio.run(main())
+print('EXITED_CLEANLY')
+""")
+        assert "CAUGHT" in result.stdout, f"Should catch error: {result.stdout} {result.stderr}"
+        assert "EXITED_CLEANLY" in result.stdout, (
+            f"Process must exit cleanly (thread leak detected): {result.stdout} {result.stderr}"
+        )
