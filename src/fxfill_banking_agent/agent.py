@@ -1,8 +1,4 @@
-"""Wired agent runtime — composes graph, persistence, metrics, and logging.
-
-This is the main entry point for running the banking agent in any
-environment (development, test, or production).
-"""
+"""Wired agent runtime — composes graph, persistence, metrics, and logging."""
 
 from __future__ import annotations
 
@@ -11,11 +7,12 @@ import uuid
 from typing import Any
 
 from langchain_core.messages import HumanMessage
-from langgraph.checkpoint.memory import MemorySaver
 
 from fxfill_banking_agent.auth import AuthorizationGateway, AutoApprovePolicy
+from fxfill_banking_agent.checkpoint_store import SqliteCheckpointSaver
 from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.graph import build_agent_graph
+from fxfill_banking_agent.idempotency_store import IdempotencyStore
 from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.logging import get_logger
 from fxfill_banking_agent.mcp_client import MCPClient
@@ -27,17 +24,7 @@ logger = get_logger(__name__)
 
 
 class AgentRuntime:
-    """Composed agent runtime with graph, persistence, metrics, and logging.
-
-    Attributes:
-        config: Agent configuration.
-        llm: LLM provider.
-        mcp_client: MCP client for tool execution.
-        event_store: Persistent event storage (optional).
-        metrics_collector: Per-step metrics collector.
-        auth_gateway: Authorization gateway for tool calls.
-        checkpoint_saver: LangGraph checkpoint backend.
-    """
+    """Composed agent runtime with graph, persistence, metrics, and logging."""
 
     def __init__(
         self,
@@ -48,6 +35,8 @@ class AgentRuntime:
         event_store: EventStore | None = None,
         metrics_collector: MetricsCollector | None = None,
         auth_gateway: AuthorizationGateway | None = None,
+        checkpoint_saver: Any | None = None,
+        idempotency_store: IdempotencyStore | None = None,
     ) -> None:
         self.config = config or AgentConfig()
         self.llm = llm
@@ -56,15 +45,23 @@ class AgentRuntime:
         self.metrics_collector = metrics_collector or InMemoryMetricsCollector()
         self.auth_gateway = auth_gateway or AuthorizationGateway(policy=AutoApprovePolicy())
 
-        # In-memory checkpoint for now; Phase 3+ can use SqliteSaver
-        self.checkpoint_saver = MemorySaver()
+        # Use durable SQLite checkpoint by default if a db path is configured
+        if checkpoint_saver is not None:
+            self.checkpoint_saver = checkpoint_saver
+        elif self.config.persistence.db_path:
+            self.checkpoint_saver = SqliteCheckpointSaver(self.config.persistence.db_path)
+        else:
+            from langgraph.checkpoint.memory import MemorySaver
+
+            self.checkpoint_saver = MemorySaver()
+
+        self.idempotency_store = idempotency_store
 
         self._graph = build_agent_graph()
 
     async def _persist_event(
         self, run_id: str, seq: int, kind: EventKind, payload: dict[str, object]
     ) -> None:
-        """Persist an event if an event store is configured."""
         if self.event_store is None:
             return
         try:
@@ -82,19 +79,6 @@ class AgentRuntime:
         thread_id: str | None = None,
         resume_from_state: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Run the agent with a user message and return the final state.
-
-        Args:
-            user_message: The user's natural-language request.
-            run_id: Opaque run identifier (auto-generated if omitted).
-            thread_id: LangGraph thread identifier for multi-turn
-                conversations (auto-generated if omitted).
-            resume_from_state: If provided, resume execution from this
-                state (used for HITL resume after approval).
-
-        Returns:
-            The final agent state dict.
-        """
         run_id = run_id or str(uuid.uuid4())
         thread_id = thread_id or run_id
         logger.info("agent_run_start", run_id=run_id, thread_id=thread_id)
@@ -135,13 +119,13 @@ class AgentRuntime:
                         "mcp_client": self.mcp_client,
                         "agent_config": self.config,
                         "auth_gateway": self.auth_gateway,
+                        "idempotency_store": self.idempotency_store,
                         "thread_id": thread_id,
                         "run_id": run_id,
                     },
                 },
             )
         except RuntimeError as exc:
-            # HITL pause — persist state and re-raise for caller
             logger.info("agent_run_paused_for_approval", run_id=run_id, error=str(exc))
             await self._persist_event(
                 run_id,

@@ -105,6 +105,31 @@ class MCPConfig:
 
 
 @dataclass(frozen=True)
+class PersistenceConfig:
+    """Configuration for durable storage backends.
+
+    Attributes:
+        db_path: Shared SQLite database path for all stores.
+        checkpoint_path: Path for checkpoint storage (defaults to db_path).
+        hitl_expiry_minutes: How long a HITL session stays PENDING before expiry.
+        idempotency_retention_days: How long to retain idempotency records.
+        connection_timeout: Timeout for database connections in seconds.
+    """
+
+    db_path: str = ""
+    checkpoint_path: str = ""
+    hitl_expiry_minutes: int = 30
+    idempotency_retention_days: int = 90
+    connection_timeout: int = 30
+
+    def __post_init__(self) -> None:
+        if self.hitl_expiry_minutes < 1:
+            raise ValueError("hitl_expiry_minutes must be >= 1")
+        if self.connection_timeout < 1:
+            raise ValueError("connection_timeout must be >= 1")
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     """Top-level configuration for the banking agent.
 
@@ -114,6 +139,7 @@ class AgentConfig:
         llm: LLM configuration.
         database: Database configuration.
         mcp: MCP server configuration.
+        persistence: Durable storage configuration.
         max_agent_steps: Hard limit on agent reasoning + tool-call loops.
         human_approval_required: When True, side-effecting operations
             require explicit human approval.
@@ -126,6 +152,7 @@ class AgentConfig:
     )
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     mcp: MCPConfig = field(default_factory=MCPConfig)
+    persistence: PersistenceConfig = field(default_factory=PersistenceConfig)
     max_agent_steps: int = 50
     human_approval_required: bool = True
 

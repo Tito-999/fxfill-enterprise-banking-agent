@@ -1,0 +1,146 @@
+"""Shared database initialization and schema migration.
+
+Provides idempotent schema creation with explicit version tracking.
+All storage modules (checkpoint, HITL, idempotency, events) share this
+initialization path.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import aiosqlite
+
+from fxfill_banking_agent.logging import get_logger
+
+logger = get_logger(__name__)
+
+CURRENT_SCHEMA_VERSION = 1
+
+
+async def init_database(
+    db_path: str | Path, *, schema_version: int = CURRENT_SCHEMA_VERSION
+) -> aiosqlite.Connection:
+    """Initialize a database with idempotent schema creation.
+
+    Creates the schema-version table and runs forward migrations up to
+    ``schema_version``. Fails if the database has a future schema version.
+
+    Args:
+        db_path: Path to the SQLite database file.
+        schema_version: Expected schema version.
+
+    Returns:
+        An open aiosqlite connection.
+
+    Raises:
+        RuntimeError: If the database has a schema version higher than
+            ``schema_version`` (future/incompatible).
+    """
+    db_path = Path(db_path)
+    db_path.parent.mkdir(parents=True, exist_ok=True)
+
+    conn = await aiosqlite.connect(str(db_path))
+    conn.row_factory = aiosqlite.Row
+
+    await conn.execute("PRAGMA journal_mode=WAL")
+    await conn.execute("PRAGMA foreign_keys=ON")
+
+    # Schema version table
+    await conn.execute("CREATE TABLE IF NOT EXISTS _schema_version (version INTEGER PRIMARY KEY)")
+
+    cursor = await conn.execute("SELECT version FROM _schema_version ORDER BY version DESC LIMIT 1")
+    row = await cursor.fetchone()
+    current = row["version"] if row else 0
+
+    if current > schema_version:
+        await conn.close()
+        raise RuntimeError(
+            f"Database schema version {current} is newer than expected {schema_version}. "
+            f"Cannot downgrade."
+        )
+
+    if current < 1:
+        await _migrate_v1(conn)
+
+    if current < schema_version:
+        await conn.execute(
+            "INSERT OR REPLACE INTO _schema_version (version) VALUES (?)",
+            (schema_version,),
+        )
+        await conn.commit()
+
+    logger.info("database_initialized", path=str(db_path), version=schema_version)
+    return conn
+
+
+async def _migrate_v1(conn: aiosqlite.Connection) -> None:
+    """Create v1 tables: events, checkpoints, hitl_sessions, idempotency."""
+    # Events table (from persistence.py)
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS events ("
+        "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
+        "  run_id TEXT NOT NULL,"
+        "  seq INTEGER NOT NULL,"
+        "  kind TEXT NOT NULL,"
+        "  payload TEXT NOT NULL,"
+        "  timestamp TEXT NOT NULL,"
+        "  UNIQUE(run_id, seq)"
+        ")"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_run_id ON events(run_id)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_events_kind ON events(kind)")
+
+    # Checkpoint table (LangGraph-compatible state storage)
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS checkpoints ("
+        "  thread_id TEXT NOT NULL,"
+        "  checkpoint_ns TEXT NOT NULL DEFAULT '',"
+        "  checkpoint_id TEXT NOT NULL,"
+        "  parent_checkpoint_id TEXT,"
+        "  type TEXT NOT NULL,"
+        "  checkpoint BLOB NOT NULL,"
+        "  metadata BLOB,"
+        "  created_at TEXT NOT NULL,"
+        "  PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)"
+        ")"
+    )
+
+    # HITL sessions table
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS hitl_sessions ("
+        "  session_id TEXT PRIMARY KEY,"
+        "  user_id TEXT NOT NULL DEFAULT 'unknown',"
+        "  thread_id TEXT NOT NULL,"
+        "  status TEXT NOT NULL DEFAULT 'PENDING',"
+        "  tool_name TEXT NOT NULL,"
+        "  tool_args TEXT NOT NULL,"
+        "  authorization_decision TEXT,"
+        "  approval_requirement TEXT,"
+        "  idempotency_key TEXT UNIQUE,"
+        "  version INTEGER NOT NULL DEFAULT 1,"
+        "  created_at TEXT NOT NULL,"
+        "  updated_at TEXT NOT NULL,"
+        "  expires_at TEXT"
+        ")"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_hitl_status ON hitl_sessions(status)")
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_hitl_thread ON hitl_sessions(thread_id)")
+
+    # Idempotency records
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS idempotency_records ("
+        "  idempotency_key TEXT PRIMARY KEY,"
+        "  status TEXT NOT NULL DEFAULT 'RESERVED',"
+        "  tool_name TEXT NOT NULL,"
+        "  tool_args TEXT,"
+        "  result TEXT,"
+        "  error TEXT,"
+        "  created_at TEXT NOT NULL,"
+        "  completed_at TEXT"
+        ")"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_idem_status ON idempotency_records(status)")
+
+    await conn.commit()
+    logger.info("migration_v1_complete")

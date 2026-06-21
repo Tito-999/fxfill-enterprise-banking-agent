@@ -38,7 +38,7 @@
     "phase-2": {
       "label": "Durable Execution and Persistence",
       "criteria": [
-        {"id": "2.1", "criterion": "Agent state survives restart", "status": "PARTIALLY_IMPLEMENTED", "evidence": "MemorySaver only; SQLite checkpoint not wired"},
+        {"id": "2.1", "criterion": "Agent state survives restart", "status": "VERIFIED_COMPLETE", "evidence": "SqliteCheckpointSaver + SqliteHITLStore + SqliteIdempotencyStore + process-boundary test"},
         {"id": "2.2", "criterion": "Events are queryable", "status": "VERIFIED_COMPLETE", "evidence": "SqliteEventStore + 6 persistence tests"},
         {"id": "2.3", "criterion": "Metrics recorded per step", "status": "VERIFIED_COMPLETE", "evidence": "metrics.py + 5 tests"},
         {"id": "2.4", "criterion": "Structured logging", "status": "VERIFIED_COMPLETE", "evidence": "logging.py + 4 tests"},
@@ -52,7 +52,7 @@
         {"id": "3.1", "criterion": "Authorization gateway exists", "status": "VERIFIED_COMPLETE", "evidence": "auth.py + 16 tests"},
         {"id": "3.2", "criterion": "Configurable policy", "status": "VERIFIED_COMPLETE", "evidence": "3 policies: AutoApprove, ReadOnly, RequireApproval"},
         {"id": "3.3", "criterion": "Approval audit trail", "status": "VERIFIED_COMPLETE", "evidence": "audit_trail property + test"},
-        {"id": "3.4", "criterion": "HITL pause/approve/reject", "status": "PARTIALLY_IMPLEMENTED", "evidence": "202 + /agent/approve; no persistent session store"},
+        {"id": "3.4", "criterion": "HITL pause/approve/reject", "status": "VERIFIED_COMPLETE", "evidence": "202 + /agent/approve + SqliteHITLStore + optimistic locking + expiry"},
         {"id": "3.5", "criterion": "Auth enforced before tool calls", "status": "VERIFIED_COMPLETE", "evidence": "graph.py __tool_node auth check"},
         {"id": "3.6", "criterion": "Tests pass", "status": "VERIFIED_COMPLETE", "evidence": "97 tests at phase-3 commit"}
       ]

@@ -82,12 +82,12 @@
 
 | Category | Tests | Files |
 |---|---|---|
-| Unit | 97 | 15 files in `tests/unit/` |
-| Integration | 16 | 2 files in `tests/integration/` |
-| Security | 17 | 1 file in `tests/security/` |
+| Unit | 113 | 12 files in `tests/unit/` |
+| Integration | 11 | 2 files in `tests/integration/` |
+| Security | 12 | 1 file in `tests/security/` |
 | Recovery | 6 | 1 file in `tests/recovery/` |
-| End-to-end | 14 | 1 file in `tests/e2e/` |
-| **Total** | **158** | **24 files** |
+| End-to-end | 16 | 1 file in `tests/e2e/` |
+| **Total** | **158** | **17 files** |
 
 ## 4. Warnings
 

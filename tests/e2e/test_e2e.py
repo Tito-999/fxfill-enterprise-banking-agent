@@ -168,62 +168,36 @@ class TestFailures:
 
 
 class TestHITL:
-    def test_approve_endpoint_exists(self) -> None:
-        """The /agent/approve endpoint accepts valid requests."""
-        llm = MockLLM([AIMessage(content="ok")])
-        app = create_app(llm=llm, mcp_client=StubMCPClient())
-        client = TestClient(app)
-        # Test that the endpoint exists (404 because no paused session)
-        resp = client.post(
-            "/agent/approve",
-            json={
-                "session_id": "nonexistent",
-                "decision": "approve",
-            },
-        )
-        assert resp.status_code == 404  # No paused session
+    @pytest.fixture
+    def hitl_client(self, tmp_path) -> TestClient:
+        from fxfill_banking_agent.hitl_store import SqliteHITLStore
 
-    def test_approve_rejects_unknown_session(self) -> None:
-        """Approving a non-existent session returns 404."""
+        store = SqliteHITLStore(tmp_path / "hitl.db")
         llm = MockLLM([AIMessage(content="ok")])
-        app = create_app(llm=llm, mcp_client=StubMCPClient())
-        client = TestClient(app)
-        resp = client.post(
-            "/agent/approve",
-            json={
-                "session_id": "ghost-session",
-                "decision": "approve",
-            },
+        app = create_app(llm=llm, mcp_client=StubMCPClient(), hitl_store=store)
+        return TestClient(app)
+
+    def test_approve_endpoint_exists(self, hitl_client: TestClient) -> None:
+        resp = hitl_client.post(
+            "/agent/approve", json={"session_id": "nonexistent", "decision": "approve"}
         )
         assert resp.status_code == 404
 
-    def test_reject_endpoint(self) -> None:
-        """Rejecting a paused session returns a proper response."""
-        llm = MockLLM([AIMessage(content="ok")])
-        app = create_app(llm=llm, mcp_client=StubMCPClient())
-        client = TestClient(app)
-        resp = client.post(
-            "/agent/approve",
-            json={
-                "session_id": "test-session",
-                "decision": "reject",
-            },
+    def test_approve_rejects_unknown_session(self, hitl_client: TestClient) -> None:
+        resp = hitl_client.post(
+            "/agent/approve", json={"session_id": "ghost-session", "decision": "approve"}
         )
-        assert resp.status_code == 404  # No paused session
+        assert resp.status_code == 404
 
-    def test_invalid_decision_rejected(self) -> None:
-        """Invalid decision value returns validation error."""
-        llm = MockLLM([AIMessage(content="ok")])
-        app = create_app(llm=llm, mcp_client=StubMCPClient())
-        client = TestClient(app)
-        resp = client.post(
-            "/agent/approve",
-            json={
-                "session_id": "x",
-                "decision": "maybe",
-            },
+    def test_reject_endpoint(self, hitl_client: TestClient) -> None:
+        resp = hitl_client.post(
+            "/agent/approve", json={"session_id": "test-session", "decision": "reject"}
         )
-        assert resp.status_code == 422  # Validation error for invalid enum
+        assert resp.status_code == 404
+
+    def test_invalid_decision_rejected(self, hitl_client: TestClient) -> None:
+        resp = hitl_client.post("/agent/approve", json={"session_id": "x", "decision": "maybe"})
+        assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -4,23 +4,23 @@
   "gaps": [
     {
       "id": "GAP-001",
-      "severity": "medium",
+      "severity": "resolved",
       "area": "persistence",
-      "title": "Checkpoint saver is in-memory only",
-      "description": "AgentRuntime uses MemorySaver. Process restart loses all agent state. SqliteSaver from langgraph-checkpoint-sqlite is available but not wired.",
-      "impact": "Cannot survive process restart without external state serialization.",
-      "mitigation": "sqlite3 checkpoint adapter planned for future phase.",
-      "tests": "tests/recovery/test_recovery.py verifies event persistence survives restart."
+      "title": "Checkpoint saver was in-memory only",
+      "description": "Resolved in Step 3. SqliteCheckpointSaver implemented and wired. Default production path uses SQLite when a db_path is configured.",
+      "impact": "No longer applicable.",
+      "mitigation": "N/A — resolved.",
+      "tests": "tests/recovery/test_durability.py TestCheckpointDurability"
     },
     {
       "id": "GAP-002",
-      "severity": "medium",
+      "severity": "resolved",
       "area": "hitl",
-      "title": "HITL session store is in-memory only",
-      "description": "Paused sessions in api.py _paused_sessions dict are lost on process restart.",
-      "impact": "Pending approvals are lost if the API process restarts.",
-      "mitigation": "Sessions should be persisted to SqliteEventStore.",
-      "tests": "tests/e2e/test_e2e.py TestHITL covers approve/reject flow."
+      "title": "HITL session store was in-memory only",
+      "description": "Resolved in Step 3. SqliteHITLStore implemented with optimistic locking, expiry, and full session lifecycle.",
+      "impact": "No longer applicable.",
+      "mitigation": "N/A — resolved.",
+      "tests": "tests/recovery/test_durability.py TestHITLDurability + process-boundary test"
     },
     {
       "id": "GAP-003",

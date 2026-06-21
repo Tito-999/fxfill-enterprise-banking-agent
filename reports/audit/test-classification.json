@@ -2,30 +2,31 @@
   "schema": "fxfill-test-classification/0.1.0",
   "date": "2026-06-21",
   "total_tests": 158,
-  "files": [
-    {"path": "tests/unit/test_config.py", "category": "unit", "tests": 16},
-    {"path": "tests/unit/test_evidence.py", "category": "unit", "tests": 14},
-    {"path": "tests/unit/test_upstream.py", "category": "unit", "tests": 9},
-    {"path": "tests/unit/test_llm.py", "category": "unit", "tests": 6},
-    {"path": "tests/unit/test_mcp_client.py", "category": "unit", "tests": 7},
-    {"path": "tests/unit/test_graph.py", "category": "unit", "tests": 15},
-    {"path": "tests/unit/test_persistence.py", "category": "unit", "tests": 6},
-    {"path": "tests/unit/test_metrics.py", "category": "unit", "tests": 5},
-    {"path": "tests/unit/test_logging.py", "category": "unit", "tests": 4},
-    {"path": "tests/unit/test_auth.py", "category": "unit", "tests": 16},
-    {"path": "tests/unit/test_api.py", "category": "unit", "tests": 7},
-    {"path": "tests/unit/test_evaluation.py", "category": "unit", "tests": 9},
-    {"path": "tests/integration/test_agent_runtime.py", "category": "integration", "tests": 7},
-    {"path": "tests/integration/test_api_integration.py", "category": "integration", "tests": 5},
-    {"path": "tests/security/test_auth_enforcement.py", "category": "security", "tests": 13},
-    {"path": "tests/recovery/test_recovery.py", "category": "recovery", "tests": 6},
-    {"path": "tests/e2e/test_e2e.py", "category": "end-to-end", "tests": 13}
-  ],
-  "summary_by_category": {
-    "unit": 114,
-    "integration": 12,
-    "security": 13,
+  "collected_counts": {
+    "unit": 113,
+    "integration": 11,
+    "security": 12,
     "recovery": 6,
-    "end-to-end": 13
-  }
+    "end_to_end": 16,
+    "total": 158
+  },
+  "files": [
+    {"path": "tests/unit/test_config.py", "category": "unit"},
+    {"path": "tests/unit/test_evidence.py", "category": "unit"},
+    {"path": "tests/unit/test_upstream.py", "category": "unit"},
+    {"path": "tests/unit/test_llm.py", "category": "unit"},
+    {"path": "tests/unit/test_mcp_client.py", "category": "unit"},
+    {"path": "tests/unit/test_graph.py", "category": "unit"},
+    {"path": "tests/unit/test_persistence.py", "category": "unit"},
+    {"path": "tests/unit/test_metrics.py", "category": "unit"},
+    {"path": "tests/unit/test_logging.py", "category": "unit"},
+    {"path": "tests/unit/test_auth.py", "category": "unit"},
+    {"path": "tests/unit/test_api.py", "category": "unit"},
+    {"path": "tests/unit/test_evaluation.py", "category": "unit"},
+    {"path": "tests/integration/test_agent_runtime.py", "category": "integration"},
+    {"path": "tests/integration/test_api_integration.py", "category": "integration"},
+    {"path": "tests/security/test_auth_enforcement.py", "category": "security"},
+    {"path": "tests/recovery/test_recovery.py", "category": "recovery"},
+    {"path": "tests/e2e/test_e2e.py", "category": "end-to-end"}
+  ]
 }
