@@ -1,32 +1,17 @@
 {
   "schema": "fxfill-test-classification/0.1.0",
   "date": "2026-06-21",
-  "total_tests": 158,
+  "total_collected": 219,
+  "total_passed": 218,
+  "total_skipped": 1,
+  "skipped_reason": "live_provider requires LIVE_PROVIDER_TEST=1",
   "collected_counts": {
     "unit": 113,
-    "integration": 11,
+    "contract": 27,
+    "integration": 19,
     "security": 12,
-    "recovery": 6,
-    "end_to_end": 16,
-    "total": 158
-  },
-  "files": [
-    {"path": "tests/unit/test_config.py", "category": "unit"},
-    {"path": "tests/unit/test_evidence.py", "category": "unit"},
-    {"path": "tests/unit/test_upstream.py", "category": "unit"},
-    {"path": "tests/unit/test_llm.py", "category": "unit"},
-    {"path": "tests/unit/test_mcp_client.py", "category": "unit"},
-    {"path": "tests/unit/test_graph.py", "category": "unit"},
-    {"path": "tests/unit/test_persistence.py", "category": "unit"},
-    {"path": "tests/unit/test_metrics.py", "category": "unit"},
-    {"path": "tests/unit/test_logging.py", "category": "unit"},
-    {"path": "tests/unit/test_auth.py", "category": "unit"},
-    {"path": "tests/unit/test_api.py", "category": "unit"},
-    {"path": "tests/unit/test_evaluation.py", "category": "unit"},
-    {"path": "tests/integration/test_agent_runtime.py", "category": "integration"},
-    {"path": "tests/integration/test_api_integration.py", "category": "integration"},
-    {"path": "tests/security/test_auth_enforcement.py", "category": "security"},
-    {"path": "tests/recovery/test_recovery.py", "category": "recovery"},
-    {"path": "tests/e2e/test_e2e.py", "category": "end-to-end"}
-  ]
+    "recovery": 25,
+    "end_to_end": 23,
+    "live_provider": 1
+  }
 }

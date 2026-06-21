@@ -1,0 +1,32 @@
+{
+  "schema": "fxfill-step4-acceptance/0.1.0",
+  "date": "2026-06-21",
+  "step": "4C",
+  "status": "complete",
+  "authorization_audit": {
+    "production_fail_closed": true,
+    "auto_approve_fallbacks_removed": true,
+    "explicit_policy_required_in": ["AuthorizationGateway", "AgentRuntime", "create_app", "graph._require_deps"],
+    "single_intentional_usage": "api.py:207 HITL resume gateway (explicit, not a fallback)"
+  },
+  "test_increases": {
+    "integration": {"before": 11, "after": 19, "new": 8},
+    "e2e": {"before": 16, "after": 23, "new": 7}
+  },
+  "full_chain_exercises": [
+    "DeepSeekProvider + FakeHTTPTransport",
+    "MCPClientAdapter + BankingMCPServer",
+    "AgentRuntime + LangGraph",
+    "AuthorizationGateway (ReadOnly, RequireApproval)",
+    "SqliteCheckpointSaver, SqliteHITLStore, SqliteIdempotencyStore, SqliteEventStore",
+    "FastAPI create_app + TestClient"
+  ],
+  "docs_created": [
+    "docs/banking-tool-policy.md",
+    "docs/hitl-transfer-flow.md",
+    "docs/runtime-setup.md",
+    "docs/provider-contracts.md",
+    "docs/mcp-runtime.md"
+  ],
+  "mcp_classification": "MCP_COMPATIBLE_IN_PROCESS_ADAPTER"
+}
