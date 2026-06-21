@@ -4,7 +4,19 @@ would require explicit injection. Production code always fails closed."""
 
 from __future__ import annotations
 
+import pytest
+
 from fxfill_banking_agent.auth import AuthorizationGateway, AutoApprovePolicy
+
+
+@pytest.fixture(autouse=True)
+async def _close_sqlite_connections():
+    """Close all tracked SQLite connections after each test."""
+    yield
+    from fxfill_banking_agent.db import close_all_connections
+
+    await close_all_connections()
+
 
 # ── Patch AuthorizationGateway to allow no-arg construction in tests ──
 _original_auth_init = AuthorizationGateway.__init__

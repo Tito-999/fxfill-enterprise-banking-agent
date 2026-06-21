@@ -168,7 +168,7 @@ def create_app(
                     thread_id=pause.thread_id or session_id,
                     run_id=session_id,
                     checkpoint_id="",
-                    tool_call_id=pause.tool_call_id,
+                    tool_call_id=pause.tool_name,
                     tool_name=pause.tool_name,
                     canonical_tool_args=canonical_args,
                     argument_digest=arg_digest,
@@ -223,6 +223,9 @@ def create_app(
             )
             if not ok:
                 raise HTTPException(status_code=409, detail="Concurrent modification detected")
+            # Also reject the grant if configured
+            if grant_repo is not None:
+                await grant_repo.mark_failed(session.session_id)
             return {
                 "session_id": session.session_id,
                 "decision": "rejected",

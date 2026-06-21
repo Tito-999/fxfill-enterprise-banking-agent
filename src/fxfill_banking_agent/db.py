@@ -21,6 +21,20 @@ logger = get_logger(__name__)
 
 CURRENT_SCHEMA_VERSION = 3
 
+# Track open connections for deterministic shutdown
+_open_connections: list[aiosqlite.Connection] = []
+
+
+async def close_all_connections() -> None:
+    """Close every tracked database connection. Idempotent."""
+    global _open_connections
+    for conn in _open_connections:
+        try:
+            await conn.close()
+        except Exception:
+            pass
+    _open_connections.clear()
+
 
 async def init_database(
     db_path: str | Path, *, schema_version: int = CURRENT_SCHEMA_VERSION
@@ -52,6 +66,7 @@ async def init_database(
     conn: aiosqlite.Connection | None = None
     try:
         conn = await aiosqlite.connect(str(db_path))
+        _open_connections.append(conn)
         conn.row_factory = aiosqlite.Row
 
         await conn.execute("PRAGMA journal_mode=WAL")
