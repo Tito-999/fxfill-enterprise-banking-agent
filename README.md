@@ -4,7 +4,7 @@
 
 An auditable, production-oriented enterprise banking AI agent built with LangGraph, FastAPI, MCP-style tool boundaries, DeepSeek, and durable SQLite-backed human-in-the-loop workflows.
 
-> [!WARNING]
+
 > This repository is a reference and portfolio implementation. It uses synthetic banking data and must not be used to process real money, real customers, or sensitive personal information without a complete security, compliance, and operational review.
 
 ## Overview
