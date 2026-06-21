@@ -59,6 +59,8 @@ module = [
     "fxfill_banking_agent.mcp.*",
     "fxfill_banking_agent.banking.*",
     "fxfill_banking_agent.bootstrap",
+    "fxfill_banking_agent.grant_repo",
+    "fxfill_banking_agent.hitl_signal",
 ]
 disallow_untyped_defs = false
 warn_unused_ignores = false

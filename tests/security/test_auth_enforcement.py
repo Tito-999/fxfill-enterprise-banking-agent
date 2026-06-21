@@ -15,6 +15,7 @@ from fxfill_banking_agent.auth import (
     RequireApprovalPolicy,
 )
 from fxfill_banking_agent.config import AgentConfig
+from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.llm import MockLLM
 from fxfill_banking_agent.mcp_client import StubMCPClient, ToolResult
 
@@ -59,7 +60,7 @@ class TestAuthorizationEnforcement:
         auth = AuthorizationGateway(policy=RequireApprovalPolicy())
         runtime = AgentRuntime(llm=llm, mcp_client=mcp, auth_gateway=auth)
 
-        with pytest.raises(RuntimeError, match="HITL:"):
+        with pytest.raises(HITLPending):
             await runtime.run("send money")
 
     @pytest.mark.asyncio

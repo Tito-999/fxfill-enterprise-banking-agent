@@ -19,7 +19,7 @@ from fxfill_banking_agent.logging import get_logger
 
 logger = get_logger(__name__)
 
-CURRENT_SCHEMA_VERSION = 1
+CURRENT_SCHEMA_VERSION = 2
 
 
 async def init_database(
@@ -77,6 +77,8 @@ async def init_database(
 
         if current < 1:
             await _migrate_v1(conn)
+        if current < 2:
+            await _migrate_v2(conn)
 
         if current < schema_version:
             await conn.execute(
@@ -167,3 +169,39 @@ async def _migrate_v1(conn: aiosqlite.Connection) -> None:
 
     await conn.commit()
     logger.info("migration_v1_complete")
+
+
+async def _migrate_v2(conn: aiosqlite.Connection) -> None:
+    """Create v2 table: approved_operation_grants."""
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS approved_operation_grants ("
+        "  session_id TEXT NOT NULL,"
+        "  requesting_user_id TEXT NOT NULL,"
+        "  approving_actor_id TEXT NOT NULL,"
+        "  thread_id TEXT NOT NULL,"
+        "  run_id TEXT,"
+        "  checkpoint_id TEXT,"
+        "  tool_call_id TEXT NOT NULL,"
+        "  tool_name TEXT NOT NULL,"
+        "  canonical_tool_args TEXT NOT NULL,"
+        "  argument_digest TEXT NOT NULL,"
+        "  idempotency_key TEXT NOT NULL,"
+        "  decision TEXT NOT NULL DEFAULT 'PENDING',"
+        "  status TEXT NOT NULL DEFAULT 'PENDING',"
+        "  created_at TEXT NOT NULL,"
+        "  approved_at TEXT,"
+        "  expires_at TEXT,"
+        "  consuming_at TEXT,"
+        "  consumed_at TEXT,"
+        "  failed_at TEXT,"
+        "  version INTEGER NOT NULL DEFAULT 1"
+        ")"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grants_session ON approved_operation_grants(session_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_grants_status ON approved_operation_grants(status)"
+    )
+    await conn.commit()
+    logger.info("migration_v2_complete")

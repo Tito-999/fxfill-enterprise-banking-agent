@@ -33,6 +33,7 @@ from fxfill_banking_agent.auth import (
     OperationKind,
 )
 from fxfill_banking_agent.config import AgentConfig
+from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.idempotency_store import IdempotencyStore
 from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.mcp_client import MCPClient, ToolCall
@@ -152,19 +153,15 @@ async def _tool_node(state: AgentState, config: RunnableConfig) -> dict[str, Any
             continue
 
         if decision.decision == ApprovalDecision.PENDING:
-            # Signal to caller that HITL is required with structured payload
-            import json as _json
-
-            payload = _json.dumps(
-                {
-                    "tool_name": tool_name,
-                    "tool_args": tc.get("args", {}),
-                    "session_id": state.get("session_id", "unknown"),
-                    "idempotency_key": f"{state.get('session_id', 'unknown')}:{tool_id}",
-                    "status": "PENDING_APPROVAL",
-                }
+            # Typed domain signal — not an unexpected runtime failure
+            raise HITLPending(
+                tool_name=tool_name,
+                tool_args=tc.get("args", {}),
+                tool_call_id=tool_id,
+                session_id=state.get("session_id", "unknown"),
+                thread_id=state.get("session_id", "unknown"),
+                idempotency_key=f"{state.get('session_id', 'unknown')}:{tool_id}",
             )
-            raise RuntimeError(f"HITL:{payload}")
 
         # Approved — check durable idempotency before execution
         idem_key = f"{state.get('session_id', 'unknown')}:{tool_id}" if tool_id else None

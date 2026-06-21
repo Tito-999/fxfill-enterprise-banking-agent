@@ -169,7 +169,9 @@ class TestTransferHITLChain:
             auth,
         )
 
-        with pytest.raises(RuntimeError, match="HITL:"):
+        from fxfill_banking_agent.hitl_signal import HITLPending
+
+        with pytest.raises(HITLPending):
             await runtime.run("Send $100 to Electric Company", run_id="hitl-1")
 
     @pytest.mark.asyncio

@@ -12,6 +12,7 @@ from fxfill_banking_agent.auth import AuthorizationGateway
 from fxfill_banking_agent.checkpoint_store import SqliteCheckpointSaver
 from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.graph import build_agent_graph
+from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.idempotency_store import IdempotencyStore
 from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.logging import get_logger
@@ -129,8 +130,16 @@ class AgentRuntime:
                     },
                 },
             )
+        except HITLPending:
+            await self._persist_event(
+                run_id,
+                state.get("step_count", 0) + 1,
+                EventKind.CHECKPOINT,
+                {"state": {"step_count": state.get("step_count", 0), "session_id": run_id}},
+            )
+            raise
         except RuntimeError as exc:
-            logger.info("agent_run_paused_for_approval", run_id=run_id, error=str(exc))
+            logger.error("agent_run_error", run_id=run_id, error=str(exc))
             await self._persist_event(
                 run_id,
                 state.get("step_count", 0) + 1,

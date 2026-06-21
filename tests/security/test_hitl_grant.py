@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from datetime import datetime, timezone
 
 import pytest
@@ -240,7 +239,9 @@ class TestHITLPauseSignal:
             }
         )
 
-        with pytest.raises(RuntimeError, match="HITL:"):
+        from fxfill_banking_agent.hitl_signal import HITLPending
+
+        with pytest.raises(HITLPending):
             await _tool_node(state, config)
 
     @pytest.mark.asyncio
@@ -265,15 +266,15 @@ class TestHITLPauseSignal:
             }
         )
 
+        from fxfill_banking_agent.hitl_signal import HITLPending
+
         try:
             await _tool_node(state, config)
-        except RuntimeError as exc:
-            error_str = str(exc)
-            assert "HITL:" in error_str
-            payload = json.loads(error_str.split("HITL:", 1)[1].strip())
-            assert payload["tool_name"] == "submit_transfer"
-            assert payload["status"] == "PENDING_APPROVAL"
-            assert "session_id" in payload
+        except HITLPending as pause:
+            assert pause.tool_name == "submit_transfer"
+            assert pause.session_id == "sess-parse"
+            assert pause.tool_args == {"draft_id": "draft-x"}
+            assert pause.tool_call_id == "tc2"
 
 
 class TestAutoApprovePolicyScan:

@@ -16,6 +16,7 @@ from fxfill_banking_agent.auth import (
     OperationKind,
 )
 from fxfill_banking_agent.config import AgentConfig
+from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.hitl_store import HITLSession, HITLSessionStatus, SqliteHITLStore
 from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.mcp_client import MCPClient
@@ -127,40 +128,23 @@ def create_app(
 
         try:
             result = await runtime.run(request.message, run_id=request.session_id)
-        except RuntimeError as exc:
-            # HITL pause — extract pending operation details from error
-            session_id = request.session_id or "unknown"
-            error_str = str(exc)
+        except HITLPending as pause:
+            # Typed HITL pause — store structured details, return 202
 
-            # Parse structured HITL pause from the graph
-            tool_name = "unknown"
-            tool_args: dict[str, object] = {}
-            idem_key = ""
-            if "HITL:" in error_str:
-                try:
-                    import json as _json
-
-                    payload = _json.loads(error_str.split("HITL:", 1)[1].strip())
-                    tool_name = payload.get("tool_name", "unknown")
-                    tool_args = payload.get("tool_args", {})
-                    idem_key = payload.get("idempotency_key", "")
-                except Exception:
-                    pass
+            session_id = request.session_id or pause.session_id or "unknown"
 
             if _hitl is not None:
                 now = datetime.now(timezone.utc).isoformat()
-                import uuid
-
                 hitl_session = HITLSession(
                     session_id=session_id,
                     user_id="default",
-                    thread_id=session_id,
+                    thread_id=pause.thread_id or session_id,
                     status=HITLSessionStatus.PENDING,
-                    tool_name=tool_name,
-                    tool_args=tool_args,
+                    tool_name=pause.tool_name,
+                    tool_args=pause.tool_args,
                     authorization_decision="PENDING",
                     approval_requirement="required",
-                    idempotency_key=idem_key or str(uuid.uuid4()),
+                    idempotency_key=pause.idempotency_key or "",
                     version=1,
                     created_at=now,
                     updated_at=now,
@@ -171,7 +155,7 @@ def create_app(
             raise HTTPException(
                 status_code=202,
                 detail=f"Action requires approval. Use POST /agent/approve with session_id={session_id}",
-            ) from exc
+            ) from pause
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
