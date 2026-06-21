@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
@@ -21,8 +23,14 @@ from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.grant_repo import GrantRepository, _digest
 from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.hitl_store import HITLSession, HITLSessionStatus, SqliteHITLStore
+from fxfill_banking_agent.lifecycle import ApplicationResources
 from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.mcp_client import MCPClient
+
+
+class HITLConfigurationError(RuntimeError):
+    """HITL-enabled application is missing a required dependency."""
+
 
 # ── Schemas ──────────────────────────────────────────────────────────
 
@@ -67,6 +75,7 @@ def create_app(
     hitl_store: SqliteHITLStore | None = None,
     grant_repo: "GrantRepository | None" = None,
     approval_executor: "HITLApprovalExecutor | None" = None,
+    resources: "ApplicationResources | None" = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -90,6 +99,19 @@ def create_app(
         )
     gateway = auth_gateway
 
+    # ── HITL consistency guard: full HITL deps require executor ─────
+    _hitl_full = (hitl_store is not None and grant_repo is not None) or bool(
+        agent_cfg.persistence.db_path
+    )
+    if _hitl_full and approval_executor is None:
+        raise HITLConfigurationError(
+            "HITL is fully enabled (hitl_store + grant_repo configured) "
+            "but approval_executor is not provided. "
+            "An HITL-enabled application requires HITLApprovalExecutor, "
+            "HITL store, GrantRepository, IdempotencyStore, EventStore, "
+            "and actor resolver."
+        )
+
     # Durable HITL store: use provided or create from config
     if hitl_store is not None:
         _hitl = hitl_store
@@ -108,34 +130,18 @@ def create_app(
         auth_gateway=gateway,
     )
 
+    # ── Lifespan — closes all owned resources on shutdown ──────────
+    @asynccontextmanager
+    async def _lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
+        yield
+        if resources is not None:
+            await resources.close()
+
     app = FastAPI(
         title="fxfill-enterprise-banking-agent",
         version="0.1.0",
+        lifespan=_lifespan,
     )
-
-    # Production lifespan — closes all owned resources on shutdown
-    @app.on_event("shutdown")
-    async def _shutdown() -> None:
-        for resource in [_hitl, grant_repo]:
-            if resource is not None and hasattr(resource, "close"):
-                try:
-                    await resource.close()
-                except Exception:
-                    pass
-        store_resources = []
-        if approval_executor is not None:
-            store_resources.extend(
-                [
-                    getattr(approval_executor, "_idem", None),
-                    getattr(approval_executor, "_events", None),
-                ]
-            )
-        for r in store_resources:
-            if r is not None and hasattr(r, "close"):
-                try:
-                    await r.close()
-                except Exception:
-                    pass
 
     @app.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:
@@ -249,6 +255,8 @@ def create_app(
 
     def _map_executor_result(result: ApprovalResult) -> None:
         if result.error:
+            if result.decision == "reconciliation_required":
+                raise HTTPException(status_code=409, detail=result.error)
             status_code = 409 if "Already" in (result.error or "") else 500
             raise HTTPException(status_code=status_code, detail=result.error)
 

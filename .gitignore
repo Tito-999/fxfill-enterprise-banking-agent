@@ -23,6 +23,7 @@ artifacts/private/
 # Claude local files
 CLAUDE.local.md
 .claude/settings.local.json
+.codex/
 
 # Runtime output
 data/

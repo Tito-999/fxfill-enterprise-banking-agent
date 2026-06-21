@@ -18,11 +18,12 @@ logger = get_logger(__name__)
 
 @dataclass
 class ApprovalResult:
-    decision: str  # "approved", "rejected"
+    decision: str  # "approved", "rejected", "reconciliation_required", "error"
     session_id: str
     answer: str | None = None
     step_count: int = 0
     error: str | None = None
+    reconciliation_reason: str | None = None
 
 
 class HITLApprovalExecutor:
@@ -81,6 +82,30 @@ class HITLApprovalExecutor:
                 session_id, HITLSessionStatus.EXPIRED, expected_version=session.version
             )
             return ApprovalResult("error", session_id, error="Session expired")
+
+        # ── Reconciliation gate: historical records with empty tool_call_id ──
+        if not session.tool_call_id:
+            await self._hitl.update_status(
+                session_id,
+                HITLSessionStatus.RECONCILIATION_REQUIRED,
+                expected_version=session.version,
+            )
+            await self._grant.mark_reconciliation_required(session_id)
+            await self._persist_event(
+                session_id,
+                0,
+                EventKind.RECONCILIATION_REQUIRED,
+                {
+                    "reason": "missing_historical_tool_call_id",
+                    "session_id": session_id,
+                },
+            )
+            return ApprovalResult(
+                "reconciliation_required",
+                session_id,
+                error="Historical record missing tool_call_id — manual reconciliation required",
+                reconciliation_reason="missing_historical_tool_call_id",
+            )
 
         # Resolve trusted actor
         actor = self._actor.resolve(request_context)

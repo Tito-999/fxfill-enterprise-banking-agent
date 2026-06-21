@@ -1,0 +1,141 @@
+{
+  "schema": "fxfill-step4-final-operational-acceptance/0.1.0",
+  "date": "2026-06-21",
+  "step": "4-final",
+  "status": "complete",
+  "commit_sha_placeholder": "pending",
+  "defects_resolved": {
+    "DEFECT_1": {
+      "title": "Historical empty tool_call_id is not behaviorally tested",
+      "resolution": "7 behavioral executor tests in tests/recovery/test_historical_reconciliation.py",
+      "test_names": [
+        "test_executor_empty_tool_call_id_requires_reconciliation",
+        "test_empty_tool_call_id_produces_zero_mcp_calls",
+        "test_reconciliation_state_persisted_in_hitl_and_grant",
+        "test_reconciliation_event_is_queryable",
+        "test_grant_not_consumed_after_reconciliation",
+        "test_idempotency_not_succeeded_and_hitl_not_resumed",
+        "test_no_approval_granted_event_before_reconciliation"
+      ],
+      "code_path": "approval_executor.py:88-110"
+    },
+    "DEFECT_2": {
+      "title": "Reconciliation is not an explicit durable state",
+      "resolution": "RECONCILIATION_REQUIRED added to HITLSessionStatus, GrantRepository, EventKind, ApprovalResult, HTTP 409",
+      "code_paths": [
+        "hitl_store.py:31 (HITLSessionStatus.RECONCILIATION_REQUIRED)",
+        "grant_repo.py:195-203 (mark_reconciliation_required)",
+        "persistence.py:36 (EventKind.RECONCILIATION_REQUIRED)",
+        "approval_executor.py:88-110 (reconciliation gate)",
+        "api.py:257-258 (HTTP 409 mapping)",
+        "db.py:323-364 (_migrate_v5 for CHECK constraint)"
+      ],
+      "schema_version": 5
+    },
+    "DEFECT_3": {
+      "title": "Application lifecycle does not prove provider and MCP cleanup",
+      "resolution": "ApplicationResources class in lifecycle.py with idempotent close()",
+      "code_path": "lifecycle.py"
+    },
+    "DEFECT_4": {
+      "title": "No real application lifecycle acceptance tests",
+      "resolution": "9 lifecycle tests in tests/e2e/test_app_lifecycle.py",
+      "test_names": [
+        "test_close_is_idempotent",
+        "test_close_failure_does_not_block_remaining_resources",
+        "test_all_stores_and_provider_and_mcp_closed",
+        "test_no_resources_is_safe",
+        "test_app_lifespan_closes_all_owned_resources",
+        "test_app_lifespan_closes_provider_and_disconnects_mcp",
+        "test_close_failure_does_not_block_remaining_in_lifespan",
+        "test_resource_close_is_idempotent_via_lifespan",
+        "test_no_aiosqlite_worker_after_lifespan_shutdown"
+      ]
+    },
+    "DEFECT_5": {
+      "title": "Bootstrap partial failure has no explicit rollback",
+      "resolution": "Validation-before-resources + try/except with resources.close() in bootstrap_app",
+      "code_path": "bootstrap.py:62-167",
+      "test_path": "tests/unit/test_bootstrap_rollback.py (9 tests)"
+    },
+    "DEFECT_6": {
+      "title": "Executor absence must fail before request handling",
+      "resolution": "HITLConfigurationError raised at create_app construction; 501 remains as defensive guard",
+      "code_paths": [
+        "api.py:30-31 (HITLConfigurationError)",
+        "api.py:101-112 (construction-time guard)",
+        "api.py:241 (defensive 501)"
+      ]
+    }
+  },
+  "verification": {
+    "tests_collected": 290,
+    "tests_passed": 289,
+    "tests_skipped": 1,
+    "ruff": "All checks passed",
+    "ruff_format": "88 files already formatted",
+    "mypy": "Success: no issues found in 41 source files",
+    "tool_name_fallback_scan": "zero hits",
+    "request_approver_auth_scan": "zero hits",
+    "reconciliation_state_scan": "11 references across 6 source files",
+    "lifecycle_ownership_scan": "ApplicationResources + lifespan + disconnect + close confirmed",
+    "status_501_scan": "1 defensive guard only"
+  },
+  "behavioral_guarantees": {
+    "empty_tool_call_id_reconciliation": {
+      "production_code": "approval_executor.py:88-110",
+      "test": "test_executor_empty_tool_call_id_requires_reconciliation",
+      "status": "VERIFIED"
+    },
+    "zero_mcp_calls_for_historical": {
+      "production_code": "approval_executor.py:88-110 (returns before MCP dispatch)",
+      "test": "test_empty_tool_call_id_produces_zero_mcp_calls",
+      "status": "VERIFIED"
+    },
+    "reconciliation_state_persisted": {
+      "production_code": "hitl_store.py:31, grant_repo.py:195-203",
+      "test": "test_reconciliation_state_persisted_in_hitl_and_grant",
+      "status": "VERIFIED"
+    },
+    "reconciliation_event_queryable": {
+      "production_code": "approval_executor.py:97, persistence.py:36",
+      "test": "test_reconciliation_event_is_queryable",
+      "status": "VERIFIED"
+    },
+    "all_resources_closed_on_shutdown": {
+      "production_code": "api.py:132-143, lifecycle.py:46-97",
+      "test": "test_app_lifespan_closes_all_owned_resources",
+      "status": "VERIFIED"
+    },
+    "provider_close_called": {
+      "production_code": "lifecycle.py:78-85",
+      "test": "test_app_lifespan_closes_provider_and_disconnects_mcp",
+      "status": "VERIFIED"
+    },
+    "mcp_disconnect_called": {
+      "production_code": "lifecycle.py:88-96",
+      "test": "test_app_lifespan_closes_provider_and_disconnects_mcp",
+      "status": "VERIFIED"
+    },
+    "close_failure_isolation": {
+      "production_code": "lifecycle.py:58-76",
+      "test": "test_close_failure_does_not_block_remaining_resources",
+      "status": "VERIFIED"
+    },
+    "close_idempotent": {
+      "production_code": "lifecycle.py:50-52",
+      "test": "test_resource_close_is_idempotent_via_lifespan",
+      "status": "VERIFIED"
+    },
+    "bootstrap_rollback": {
+      "production_code": "bootstrap.py:165-167",
+      "test": "test_bootstrap_rolls_back_after_mcp_connection",
+      "status": "VERIFIED"
+    },
+    "construction_time_executor_requirement": {
+      "production_code": "api.py:101-112",
+      "test": "test_hitl_app_requires_executor_at_construction",
+      "status": "VERIFIED"
+    }
+  }
+}

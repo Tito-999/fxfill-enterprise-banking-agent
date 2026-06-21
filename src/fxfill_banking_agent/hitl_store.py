@@ -28,6 +28,7 @@ class HITLSessionStatus(str, Enum):
     EXPIRED = "EXPIRED"
     RESUMED = "RESUMED"
     FAILED = "FAILED"
+    RECONCILIATION_REQUIRED = "RECONCILIATION_REQUIRED"
 
 
 @dataclass
@@ -53,6 +54,7 @@ class HITLSession:
             HITLSessionStatus.REJECTED,
             HITLSessionStatus.EXPIRED,
             HITLSessionStatus.FAILED,
+            HITLSessionStatus.RECONCILIATION_REQUIRED,
         )
 
     def is_expired(self) -> bool:

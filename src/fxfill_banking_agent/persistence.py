@@ -33,6 +33,7 @@ class EventKind(str, Enum):
     TOOL_RESULT = "tool_result"
     ERROR = "error"
     CHECKPOINT = "checkpoint"
+    RECONCILIATION_REQUIRED = "reconciliation_required"
 
 
 @dataclass(frozen=True)

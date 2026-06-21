@@ -191,6 +191,17 @@ class GrantRepository:
         )
         await conn.commit()
 
+    async def mark_reconciliation_required(self, session_id: str) -> None:
+        """Mark PENDING grant as RECONCILIATION_REQUIRED — no dispatch occurred."""
+        conn = await self._ensure_db()
+        now = datetime.now(timezone.utc).isoformat()
+        await conn.execute(
+            "UPDATE approved_operation_grants SET status='RECONCILIATION_REQUIRED', failed_at=?"
+            " WHERE session_id=? AND status='PENDING'",
+            (now, session_id),
+        )
+        await conn.commit()
+
     async def mark_unknown(self, session_id: str) -> None:
         conn = await self._ensure_db()
         now = datetime.now(timezone.utc).isoformat()

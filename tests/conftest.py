@@ -43,8 +43,29 @@ def _install_all_patches():
             kw["auth_gateway"] = AuthorizationGateway(policy=AutoApprovePolicy())
         # Auto-inject executor for HITL-enabled tests
         if not kw.get("approval_executor") and kw.get("hitl_store") and kw.get("grant_repo"):
-            # Create executor with test deps (creates temp DB stores)
-            pass  # Too complex — let tests provide executors explicitly
+            from fxfill_banking_agent.actor_resolver import FixedActorResolver
+            from fxfill_banking_agent.approval_executor import HITLApprovalExecutor
+            from fxfill_banking_agent.idempotency_store import SqliteIdempotencyStore
+            from fxfill_banking_agent.persistence import SqliteEventStore
+
+            _hitl = kw["hitl_store"]
+            _grant = kw["grant_repo"]
+            _mcp = kw.get("mcp_client")
+            if _mcp is not None and hasattr(_hitl, "_db_path"):
+                _db = getattr(_hitl, "_db_path", None)
+                if _db is not None:
+                    _idem = SqliteIdempotencyStore(_db)
+                    _events = SqliteEventStore(_db)
+                    # Connect event store synchronously if possible
+                    _actor = FixedActorResolver()
+                    kw["approval_executor"] = HITLApprovalExecutor(
+                        hitl_store=_hitl,
+                        grant_repo=_grant,
+                        idempotency_store=_idem,
+                        event_store=_events,
+                        mcp_client=_mcp,
+                        actor_resolver=_actor,
+                    )
         return _orig_create(*a, **kw)
 
     api.create_app = _patched_create

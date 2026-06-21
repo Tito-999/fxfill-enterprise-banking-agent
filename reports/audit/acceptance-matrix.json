@@ -58,13 +58,20 @@
       ]
     },
     "phase-4": {
-      "label": "API, Observability, and Full Integration",
+      "label": "API, Observability, Full Integration, and Operational Acceptance",
       "criteria": [
-        {"id": "4.1", "criterion": "FastAPI service", "status": "VERIFIED_COMPLETE", "evidence": "api.py + 7 API tests"},
+        {"id": "4.1", "criterion": "FastAPI service", "status": "VERIFIED_COMPLETE", "evidence": "api.py + /health, /agent, /agent/approve"},
         {"id": "4.2", "criterion": "Request/response schemas", "status": "VERIFIED_COMPLETE", "evidence": "Pydantic models with validation"},
         {"id": "4.3", "criterion": "Health-check endpoint", "status": "VERIFIED_COMPLETE", "evidence": "/health endpoint"},
         {"id": "4.4", "criterion": "Authorization in API", "status": "VERIFIED_COMPLETE", "evidence": "api.py auth check + security tests"},
-        {"id": "4.5", "criterion": "Tests pass", "status": "VERIFIED_COMPLETE", "evidence": "104 tests at phase-4 commit"}
+        {"id": "4.5", "criterion": "Tests pass", "status": "VERIFIED_COMPLETE", "evidence": "290 collected, 289 passed, 1 skipped"},
+        {"id": "4.6", "criterion": "RECONCILIATION_REQUIRED state", "status": "VERIFIED_COMPLETE", "evidence": "hitl_store.py, grant_repo.py, persistence.py, approval_executor.py, api.py"},
+        {"id": "4.7", "criterion": "Application lifecycle", "status": "VERIFIED_COMPLETE", "evidence": "lifecycle.py + 9 lifecycle tests + 9 bootstrap rollback tests"},
+        {"id": "4.8", "criterion": "Construction-time HITL guard", "status": "VERIFIED_COMPLETE", "evidence": "api.py HITLConfigurationError"},
+        {"id": "4.9", "criterion": "Bootstrap rollback", "status": "VERIFIED_COMPLETE", "evidence": "bootstrap.py try/except + resources.close()"},
+        {"id": "4.10", "criterion": "Historical reconciliation tests", "status": "VERIFIED_COMPLETE", "evidence": "7 behavioral executor tests"},
+        {"id": "4.11", "criterion": "No tool_name fallback", "status": "VERIFIED_COMPLETE", "evidence": "git grep scan: zero hits"},
+        {"id": "4.12", "criterion": "request.approver not trusted", "status": "VERIFIED_COMPLETE", "evidence": "git grep scan: zero auth usage"}
       ]
     },
     "phase-5": {
@@ -79,7 +86,7 @@
     }
   },
   "summary": {
-    "VERIFIED_COMPLETE": 38,
+    "VERIFIED_COMPLETE": 45,
     "PARTIALLY_IMPLEMENTED": 3,
     "SCAFFOLD_ONLY": 1,
     "NOT_VERIFIED": 0
