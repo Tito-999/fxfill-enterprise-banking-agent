@@ -180,6 +180,17 @@ class GrantRepository:
         )
         await conn.commit()
 
+    async def mark_rejected(self, session_id: str) -> None:
+        """Mark PENDING grant as REJECTED without consuming."""
+        conn = await self._ensure_db()
+        now = datetime.now(timezone.utc).isoformat()
+        await conn.execute(
+            "UPDATE approved_operation_grants SET status='REJECTED', failed_at=?"
+            " WHERE session_id=? AND status IN ('PENDING','APPROVED')",
+            (now, session_id),
+        )
+        await conn.commit()
+
     async def mark_unknown(self, session_id: str) -> None:
         conn = await self._ensure_db()
         now = datetime.now(timezone.utc).isoformat()
