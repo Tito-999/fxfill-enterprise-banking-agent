@@ -98,7 +98,10 @@ class GrantRepository:
         *,
         session_id: str,
         user_id: str,
+        approving_actor_id: str = "",
         thread_id: str,
+        run_id: str = "",
+        checkpoint_id: str = "",
         tool_call_id: str,
         tool_name: str,
         tool_args: dict,
@@ -118,6 +121,9 @@ class GrantRepository:
             "UPDATE approved_operation_grants SET status='CONSUMING', consuming_at=? "
             "WHERE session_id=? AND status='APPROVED' AND version=? "
             "AND requesting_user_id=? AND thread_id=? "
+            "AND (approving_actor_id=? OR approving_actor_id='' OR ?='') "
+            "AND (run_id=? OR run_id IS NULL OR ?='') "
+            "AND (checkpoint_id=? OR checkpoint_id IS NULL OR ?='') "
             "AND tool_call_id=? AND tool_name=? AND argument_digest=? "
             "AND idempotency_key=? AND (expires_at IS NULL OR expires_at > ?)",
             (
@@ -126,6 +132,12 @@ class GrantRepository:
                 version,
                 user_id,
                 thread_id,
+                approving_actor_id,
+                approving_actor_id,
+                run_id,
+                run_id,
+                checkpoint_id,
+                checkpoint_id,
                 tool_call_id,
                 tool_name,
                 digest,
@@ -167,6 +179,31 @@ class GrantRepository:
             (now, session_id),
         )
         await conn.commit()
+
+    async def mark_unknown(self, session_id: str) -> None:
+        conn = await self._ensure_db()
+        now = datetime.now(timezone.utc).isoformat()
+        await conn.execute(
+            "UPDATE approved_operation_grants SET status='UNKNOWN', failed_at=?"
+            " WHERE session_id=? AND status='CONSUMING'",
+            (now, session_id),
+        )
+        await conn.commit()
+
+    async def approve_pending(
+        self, session_id: str, approving_actor_id: str, expected_version: int
+    ) -> bool:
+        """Atomically transition PENDING → APPROVED."""
+        conn = await self._ensure_db()
+        now = datetime.now(timezone.utc).isoformat()
+        cursor = await conn.execute(
+            "UPDATE approved_operation_grants SET status='APPROVED', "
+            "approving_actor_id=?, approved_at=? "
+            "WHERE session_id=? AND status='PENDING' AND version=?",
+            (approving_actor_id, now, session_id, expected_version),
+        )
+        await conn.commit()
+        return cursor.rowcount == 1
 
     async def get_by_session(self, session_id: str) -> GrantRecord | None:
         conn = await self._ensure_db()

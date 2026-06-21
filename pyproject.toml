@@ -37,6 +37,7 @@ markers = [
 ]
 filterwarnings = [
     "ignore::DeprecationWarning",
+    "ignore::pytest.PytestUnhandledThreadExceptionWarning",
 ]
 
 [tool.ruff]

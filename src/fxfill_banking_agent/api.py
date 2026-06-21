@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 from typing import Any
 
@@ -16,7 +17,7 @@ from fxfill_banking_agent.auth import (
     OperationKind,
 )
 from fxfill_banking_agent.config import AgentConfig
-from fxfill_banking_agent.grant_repo import GrantRepository
+from fxfill_banking_agent.grant_repo import GrantRepository, _digest
 from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.hitl_store import HITLSession, HITLSessionStatus, SqliteHITLStore
 from fxfill_banking_agent.llm import LLMProvider
@@ -131,12 +132,15 @@ def create_app(
         try:
             result = await runtime.run(request.message, run_id=request.session_id)
         except HITLPending as pause:
-            # Typed HITL pause — store structured details, return 202
+            # Typed HITL pause — store structured details + grant, return 202
 
             session_id = request.session_id or pause.session_id or "unknown"
+            now = datetime.now(timezone.utc).isoformat()
+            canonical_args = json.dumps(pause.tool_args, sort_keys=True)
+            arg_digest = _digest(pause.tool_args)
+            idem_key = pause.idempotency_key or f"{session_id}:{pause.tool_call_id}"
 
             if _hitl is not None:
-                now = datetime.now(timezone.utc).isoformat()
                 hitl_session = HITLSession(
                     session_id=session_id,
                     user_id="default",
@@ -146,13 +150,40 @@ def create_app(
                     tool_args=pause.tool_args,
                     authorization_decision="PENDING",
                     approval_requirement="required",
-                    idempotency_key=pause.idempotency_key or "",
+                    idempotency_key=idem_key,
                     version=1,
                     created_at=now,
                     updated_at=now,
                     expires_at=None,
                 )
                 await _hitl.insert(hitl_session)
+
+            if grant_repo is not None:
+                from fxfill_banking_agent.grant_repo import GrantRecord
+
+                grant = GrantRecord(
+                    session_id=session_id,
+                    requesting_user_id="default",
+                    approving_actor_id="",
+                    thread_id=pause.thread_id or session_id,
+                    run_id=session_id,
+                    checkpoint_id="",
+                    tool_call_id=pause.tool_call_id,
+                    tool_name=pause.tool_name,
+                    canonical_tool_args=canonical_args,
+                    argument_digest=arg_digest,
+                    idempotency_key=idem_key,
+                    decision="PENDING",
+                    status="PENDING",
+                    created_at=now,
+                    approved_at=None,
+                    expires_at=None,
+                    consuming_at=None,
+                    consumed_at=None,
+                    failed_at=None,
+                    version=1,
+                )
+                await grant_repo.insert_pending(grant)
 
             raise HTTPException(
                 status_code=202,
@@ -198,46 +229,53 @@ def create_app(
                 "result": {"final_answer": "Operation was rejected by human operator."},
             }
 
-        # Approve: use durable grant repository for exact-operation execution
+        # Approve: durable grant workflow (approve → claim → execute)
         if grant_repo is None:
             raise HTTPException(status_code=501, detail="Grant repository not configured")
 
-        ok = await _hitl.update_status(
-            session.session_id, HITLSessionStatus.APPROVED, expected_version=session.version
-        )
-        if not ok:
-            raise HTTPException(status_code=409, detail="Concurrent modification detected")
+        # 1. Atomically approve grant PENDING → APPROVED
+        if not await grant_repo.approve_pending(
+            session.session_id, request.approver, expected_version=1
+        ):
+            raise HTTPException(status_code=409, detail="Grant approve failed — already processed")
 
-        # Atomic claim: exactly one caller wins the CONSUMING transition
+        # 2. Update HITL session status
+        if not await _hitl.update_status(
+            session.session_id, HITLSessionStatus.APPROVED, expected_version=session.version
+        ):
+            raise HTTPException(status_code=409, detail="Concurrent session modification")
+
+        # 3. Atomic claim: one caller wins CONSUMING
         claimed = await grant_repo.atomic_consume(
             session_id=session.session_id,
             user_id=session.user_id,
+            approving_actor_id=request.approver,
             thread_id=session.thread_id,
-            tool_call_id=session.idempotency_key or "",
+            run_id=session.session_id,
+            tool_call_id=session.tool_name,
             tool_name=session.tool_name,
             tool_args=session.tool_args,
             idempotency_key=session.idempotency_key or "",
             version=1,
         )
         if claimed is None:
-            raise HTTPException(
-                status_code=409, detail="Grant already consumed or conditions mismatch"
-            )
+            raise HTTPException(status_code=409, detail="Grant already consumed or mismatch")
 
-        # Execute the exact stored MCP tool call — no LLM, no synthetic prompt
+        # 4. Execute from durable canonical arguments (not session.tool_args)
+        exec_args = json.loads(claimed.canonical_tool_args)
         from fxfill_banking_agent.mcp_client import ToolCall
 
-        tool_call = ToolCall(name=claimed.tool_name, arguments=session.tool_args)
+        tool_call = ToolCall(name=claimed.tool_name, arguments=exec_args)
         try:
             mcp_result = await mcp_client.call_tool(tool_call)
-        except Exception as exc:
-            await grant_repo.mark_failed(session.session_id)
+        except Exception:
+            await grant_repo.mark_unknown(session.session_id)
             await _hitl.update_status(
                 session.session_id,
                 HITLSessionStatus.FAILED,
                 expected_version=session.version + 1,
             )
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(status_code=500, detail="MCP dispatch failed — outcome unknown")
 
         if mcp_result.success:
             await grant_repo.mark_consumed(session.session_id)
@@ -252,7 +290,7 @@ def create_app(
                 "result": {"answer": mcp_result.content, "step_count": 0},
             }
 
-        # Uncertain/failed MCP outcome — fail closed
+        # Confirmed failure — no side effect occurred
         await grant_repo.mark_failed(session.session_id)
         await _hitl.update_status(
             session.session_id,
