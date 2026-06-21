@@ -61,6 +61,8 @@ module = [
     "fxfill_banking_agent.bootstrap",
     "fxfill_banking_agent.grant_repo",
     "fxfill_banking_agent.hitl_signal",
+    "fxfill_banking_agent.approval_executor",
+    "fxfill_banking_agent.actor_resolver",
 ]
 disallow_untyped_defs = false
 warn_unused_ignores = false

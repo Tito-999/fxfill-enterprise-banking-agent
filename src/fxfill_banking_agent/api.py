@@ -10,6 +10,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from fxfill_banking_agent.agent import AgentRuntime
+from fxfill_banking_agent.approval_executor import HITLApprovalExecutor
 from fxfill_banking_agent.auth import (
     ApprovalDecision,
     AuthorizationGateway,
@@ -65,19 +66,22 @@ def create_app(
     auth_gateway: AuthorizationGateway | None = None,
     hitl_store: SqliteHITLStore | None = None,
     grant_repo: "GrantRepository | None" = None,
+    approval_executor: "HITLApprovalExecutor | None" = None,
 ) -> FastAPI:
-    """Create the FastAPI application with durable HITL store.
+    """Create the FastAPI application.
 
     Args:
-        llm: LLM provider (must be configured — mocks not accepted in production).
+        llm: LLM provider.
         mcp_client: MCP client.
         config: Agent configuration override.
-        auth_gateway: Authorization gateway (defaults to auto-approve).
-        hitl_store: HITL session store. If omitted and a persistence db_path is
-            configured, a SqliteHITLStore is created automatically.
+        auth_gateway: Authorization gateway.
+        hitl_store: HITL session store.
+        grant_repo: Grant repository.
+        approval_executor: HITL approval executor (preferred over manual deps).
 
     Raises:
-        RuntimeError: If the HITL store is not configured when needed.
+        RuntimeError: If auth_gateway is missing or HITL is enabled
+            without required durable dependencies.
     """
     agent_cfg = config or AgentConfig()
     if auth_gateway is None:
