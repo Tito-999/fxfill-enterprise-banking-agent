@@ -1,6 +1,7 @@
-# Phase 5 — Benchmark Evaluation and Tuning
+# Phase 5 — Evaluation Harness and Synthetic Validation
 
-**Status:** COMPLETE (infrastructure ready)
+**Status:** Evaluation harness implemented and validated with deterministic
+synthetic fixtures. No official tau2-bench evaluation has been executed.
 **Date:** 2026-06-21
 
 ## Exit Criteria
@@ -8,13 +9,20 @@
 | Criterion | Status | Detail |
 |---|---|---|
 | Evaluation profiles ready | ✅ PASS | 3 profiles: default, long-reasoning, fast |
-| Benchmark harness script | ✅ PASS | `scripts/run_benchmark.py` |
+| Benchmark harness script | ✅ SCAFFOLD | `scripts/run_benchmark.py` contains placeholder-result path |
 | Result tracking | ✅ PASS | EvalRunConfig + EvalRunResult dataclasses |
-| Configuration documented | ✅ PASS | Profile docs and CLI help |
-| No benchmark internals accessed | ✅ PASS | Script reads tasks, never evaluators/rewards |
-| Tests pass | ✅ PASS | 113 total (104 prior + 9 new) |
+| No benchmark internals accessed | ✅ PASS | Never imports evaluators, rewards, or gold data |
+| Synthetic tests pass | ✅ PASS | 9 profile/config tests with deterministic fixtures |
 | Ruff passes | ✅ PASS | All checks passed |
-| Mypy strict | ✅ PASS | No issues in 15 source files |
+| Mypy strict | ✅ PASS | No issues in source files |
+
+## Important
+
+**No official tau2-bench evaluation has been executed.** The placeholder
+in `scripts/run_benchmark.py` stores a synthetic result to validate the
+output pipeline. It must not be presented as a real benchmark result.
+
+Official evaluation is manual outside Claude Code per ADR 005.
 
 ## New Files
 
@@ -24,7 +32,7 @@
 | `scripts/run_benchmark.py` | CLI harness for manual evaluation |
 | `tests/unit/test_evaluation.py` | 9 tests (profiles, config, results) |
 
-## Next Steps (Human Operator)
+## Manual Evaluation Procedure (Human Operator)
 
 1. Set LLM API credentials in environment
 2. Run: `uv run python scripts/run_benchmark.py --model claude-sonnet-4-6 --profile default`

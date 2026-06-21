@@ -1,0 +1,76 @@
+{
+  "schema": "fxfill-known-gaps/0.1.0",
+  "date": "2026-06-21",
+  "gaps": [
+    {
+      "id": "GAP-001",
+      "severity": "medium",
+      "area": "persistence",
+      "title": "Checkpoint saver is in-memory only",
+      "description": "AgentRuntime uses MemorySaver. Process restart loses all agent state. SqliteSaver from langgraph-checkpoint-sqlite is available but not wired.",
+      "impact": "Cannot survive process restart without external state serialization.",
+      "mitigation": "sqlite3 checkpoint adapter planned for future phase.",
+      "tests": "tests/recovery/test_recovery.py verifies event persistence survives restart."
+    },
+    {
+      "id": "GAP-002",
+      "severity": "medium",
+      "area": "hitl",
+      "title": "HITL session store is in-memory only",
+      "description": "Paused sessions in api.py _paused_sessions dict are lost on process restart.",
+      "impact": "Pending approvals are lost if the API process restarts.",
+      "mitigation": "Sessions should be persisted to SqliteEventStore.",
+      "tests": "tests/e2e/test_e2e.py TestHITL covers approve/reject flow."
+    },
+    {
+      "id": "GAP-003",
+      "severity": "low",
+      "area": "hitl",
+      "title": "No notification mechanism for HITL",
+      "description": "When a tool call requires approval, the API returns 202 but there is no push notification, webhook, or CLI prompt.",
+      "impact": "Human operator must poll or check logs to discover pending approvals.",
+      "mitigation": "Acceptable for reference implementation; production would add webhooks.",
+      "tests": null
+    },
+    {
+      "id": "GAP-004",
+      "severity": "low",
+      "area": "dependencies",
+      "title": "Starlette TestClient httpx deprecation",
+      "description": "starlette.testclient uses httpx; httpx2 is recommended. This is an upstream deprecation in the starlette/fastapi ecosystem.",
+      "impact": "Deprecation warning in test output. No functional impact.",
+      "mitigation": "Will resolve when fastapi updates its test client dependency.",
+      "tests": null
+    },
+    {
+      "id": "GAP-005",
+      "severity": "low",
+      "area": "dependencies",
+      "title": "LangGraph serializer allowed_objects default warning",
+      "description": "LangGraph's JsonPlusSerializer will change the default for allowed_objects. Current default behavior is preserved but emits a warning.",
+      "impact": "Pending deprecation. No functional change yet.",
+      "mitigation": "Suppress via filterwarnings in pyproject.toml or update when LangGraph releases the change.",
+      "tests": null
+    },
+    {
+      "id": "GAP-006",
+      "severity": "low",
+      "area": "evaluation",
+      "title": "No official tau2-bench evaluation executed",
+      "description": "Phase 5 infrastructure is ready but no real benchmark has been run. This is by design — official evaluation must be manual outside Claude Code.",
+      "impact": "Performance against the benchmark is unknown.",
+      "mitigation": "Human operator must run scripts/run_benchmark.py and evaluate manually.",
+      "tests": "scripts/run_benchmark.py placeholder validates output pipeline."
+    },
+    {
+      "id": "GAP-007",
+      "severity": "low",
+      "area": "testing",
+      "title": "MockLLM and StubMCPClient in production source",
+      "description": "Test fakes live in src/fxfill_banking_agent/ alongside production code. They are never imported by the production path but co-location is a code organization issue.",
+      "impact": "Production code and test fakes share a module. No runtime risk.",
+      "mitigation": "Move to tests/conftest.py or a testing subpackage in a future cleanup.",
+      "tests": "All tests import from production source; no runtime impact."
+    }
+  ]
+}
