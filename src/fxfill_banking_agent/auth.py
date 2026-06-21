@@ -160,6 +160,137 @@ class RequireApprovalPolicy:
 
 
 # ---------------------------------------------------------------------------
+# Approved operation grant (exact-match, single-use)
+# ---------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ApprovedOperationGrant:
+    """Exact-match, single-use authorization grant for one HITL operation.
+
+    The grant binds approval to the exact tool, arguments, user, session,
+    and idempotency key. Once consumed it cannot be reused.
+
+    This replaces the old pattern of creating a blanket AutoApprovePolicy
+    gateway for HITL resume.
+    """
+
+    session_id: str
+    approving_user: str
+    requesting_user: str
+    thread_id: str
+    tool_name: str
+    tool_args: dict[str, object]
+    idempotency_key: str
+    decision: str  # "approved" or "rejected"
+    created_at: str
+    expires_at: str | None
+    consumed: bool = False
+    version: int = 1
+
+    def is_expired(self) -> bool:
+        from datetime import datetime, timezone
+
+        if not self.expires_at:
+            return False
+        return datetime.now(timezone.utc) > datetime.fromisoformat(self.expires_at)
+
+    def can_authorize(
+        self,
+        *,
+        session_id: str,
+        user_id: str,
+        thread_id: str,
+        tool_name: str,
+        tool_args: dict[str, object],
+        idempotency_key: str,
+    ) -> bool:
+        """True if this grant authorizes the exact specified operation.
+
+        All fields must match exactly. The grant must not be expired,
+        consumed, or rejected.
+        """
+        if self.decision != "approved":
+            return False
+        if self.consumed:
+            return False
+        if self.is_expired():
+            return False
+        if self.session_id != session_id:
+            return False
+        if self.requesting_user != user_id:
+            return False
+        if self.thread_id != thread_id:
+            return False
+        if self.tool_name != tool_name:
+            return False
+        if self.idempotency_key != idempotency_key:
+            return False
+        # Canonical argument normalization via deterministic JSON
+        import json
+
+        if json.dumps(self.tool_args, sort_keys=True) != json.dumps(tool_args, sort_keys=True):
+            return False
+        return True
+
+
+class ApprovedOperationGrantPolicy:
+    """Authorization policy that checks against an ApprovedOperationGrant.
+
+    The grant authorizes exactly one operation. After that operation
+    executes, the grant is consumed and all subsequent tool calls
+    fall through to the normal policy (or fail closed if no policy).
+    """
+
+    def __init__(self, grant: ApprovedOperationGrant) -> None:
+        self._grant = grant
+        self._consumed = False
+
+    def authorize(self, operation: Operation) -> AuthorizationDecision:
+
+        if self._consumed:
+            return AuthorizationDecision(
+                operation=operation,
+                decision=ApprovalDecision.DENIED,
+                reason="Approved operation grant already consumed — requires new authorization",
+            )
+
+        # Extract the details needed for exact matching
+        tool_name = operation.name
+        tool_args = (
+            operation.details.get("args", {})
+            if isinstance(operation.details.get("args"), dict)
+            else {}
+        )
+        session_id = str(operation.details.get("session_id", ""))
+        user_id = str(operation.details.get("user_id", ""))
+        thread_id = str(operation.details.get("thread_id", ""))
+        idem_key = str(operation.details.get("idempotency_key", ""))
+
+        if self._grant.can_authorize(
+            session_id=session_id,
+            user_id=user_id,
+            thread_id=thread_id,
+            tool_name=tool_name,
+            tool_args=tool_args if isinstance(tool_args, dict) else {},
+            idempotency_key=idem_key,
+        ):
+            self._consumed = True
+            return AuthorizationDecision(
+                operation=operation,
+                decision=ApprovalDecision.APPROVED,
+                reason=f"Approved by {self._grant.approving_user} via HITL grant",
+                approver=self._grant.approving_user,
+            )
+
+        return AuthorizationDecision(
+            operation=operation,
+            decision=ApprovalDecision.DENIED,
+            reason="Operation does not match approved grant — exact match required",
+        )
+
+
+# ---------------------------------------------------------------------------
 # Gateway
 # ---------------------------------------------------------------------------
 

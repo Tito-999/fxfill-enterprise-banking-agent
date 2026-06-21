@@ -59,7 +59,7 @@ class TestAuthorizationEnforcement:
         auth = AuthorizationGateway(policy=RequireApprovalPolicy())
         runtime = AgentRuntime(llm=llm, mcp_client=mcp, auth_gateway=auth)
 
-        with pytest.raises(RuntimeError, match="human approval"):
+        with pytest.raises(RuntimeError, match="HITL:"):
             await runtime.run("send money")
 
     @pytest.mark.asyncio

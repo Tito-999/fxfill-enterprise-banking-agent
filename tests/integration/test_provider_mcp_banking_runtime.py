@@ -169,7 +169,7 @@ class TestTransferHITLChain:
             auth,
         )
 
-        with pytest.raises(RuntimeError, match="human approval"):
+        with pytest.raises(RuntimeError, match="HITL:"):
             await runtime.run("Send $100 to Electric Company", run_id="hitl-1")
 
     @pytest.mark.asyncio

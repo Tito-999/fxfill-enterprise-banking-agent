@@ -12,7 +12,6 @@ from fxfill_banking_agent.agent import AgentRuntime
 from fxfill_banking_agent.auth import (
     ApprovalDecision,
     AuthorizationGateway,
-    AutoApprovePolicy,
     Operation,
     OperationKind,
 )
@@ -129,8 +128,25 @@ def create_app(
         try:
             result = await runtime.run(request.message, run_id=request.session_id)
         except RuntimeError as exc:
-            # HITL pause — persist to durable store
+            # HITL pause — extract pending operation details from error
             session_id = request.session_id or "unknown"
+            error_str = str(exc)
+
+            # Parse structured HITL pause from the graph
+            tool_name = "unknown"
+            tool_args: dict[str, object] = {}
+            idem_key = ""
+            if "HITL:" in error_str:
+                try:
+                    import json as _json
+
+                    payload = _json.loads(error_str.split("HITL:", 1)[1].strip())
+                    tool_name = payload.get("tool_name", "unknown")
+                    tool_args = payload.get("tool_args", {})
+                    idem_key = payload.get("idempotency_key", "")
+                except Exception:
+                    pass
+
             if _hitl is not None:
                 now = datetime.now(timezone.utc).isoformat()
                 import uuid
@@ -140,11 +156,11 @@ def create_app(
                     user_id="default",
                     thread_id=session_id,
                     status=HITLSessionStatus.PENDING,
-                    tool_name="unknown",
-                    tool_args={},
+                    tool_name=tool_name,
+                    tool_args=tool_args,
                     authorization_decision="PENDING",
                     approval_requirement="required",
-                    idempotency_key=str(uuid.uuid4()),
+                    idempotency_key=idem_key or str(uuid.uuid4()),
                     version=1,
                     created_at=now,
                     updated_at=now,
@@ -196,15 +212,37 @@ def create_app(
                 "result": {"final_answer": "Operation was rejected by human operator."},
             }
 
-        # Approve: mark as APPROVED then resume
+        # Approve: mark as APPROVED then resume with exact-match grant
         ok = await _hitl.update_status(
             session.session_id, HITLSessionStatus.APPROVED, expected_version=session.version
         )
         if not ok:
             raise HTTPException(status_code=409, detail="Concurrent modification detected")
 
-        # Create a temporary auto-approve gateway for the resumed execution
-        resume_gateway = AuthorizationGateway(policy=AutoApprovePolicy())
+        # Create exact-match grant — authorizes only the approved operation
+        from datetime import datetime as _dt
+        from datetime import timezone as _tz
+
+        from fxfill_banking_agent.auth import ApprovedOperationGrant, ApprovedOperationGrantPolicy
+
+        now = _dt.now(_tz.utc).isoformat()
+        grant = ApprovedOperationGrant(
+            session_id=session.session_id,
+            approving_user=request.approver,
+            requesting_user=session.user_id,
+            thread_id=session.thread_id,
+            tool_name=session.tool_name,
+            tool_args=session.tool_args,
+            idempotency_key=session.idempotency_key or "",
+            decision="approved",
+            created_at=now,
+            expires_at=session.expires_at,
+            consumed=False,
+            version=session.version + 1,
+        )
+
+        # Resume with exact-match policy — not blanket AutoApprovePolicy
+        resume_gateway = AuthorizationGateway(policy=ApprovedOperationGrantPolicy(grant))
         resume_runtime = AgentRuntime(
             config=agent_cfg,
             llm=llm,
@@ -221,6 +259,12 @@ def create_app(
                     "step_count": 0,
                     "executed_tool_ids": set(),
                 },
+            )
+            # Mark session as RESUMED after successful execution
+            await _hitl.update_status(
+                session.session_id,
+                HITLSessionStatus.RESUMED,
+                expected_version=session.version + 1,
             )
             await _hitl.update_status(
                 session.session_id,
