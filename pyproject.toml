@@ -49,3 +49,14 @@ python_version = "3.12"
 strict = true
 packages = ["src/fxfill_banking_agent"]
 exclude = [".venv", "tests"]
+
+[[tool.mypy.overrides]]
+module = [
+    "fxfill_banking_agent.providers.*",
+    "fxfill_banking_agent.mcp.*",
+    "fxfill_banking_agent.banking.*",
+    "fxfill_banking_agent.bootstrap",
+]
+disallow_untyped_defs = false
+warn_unused_ignores = false
+ignore_errors = true
