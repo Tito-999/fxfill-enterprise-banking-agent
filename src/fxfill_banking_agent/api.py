@@ -113,6 +113,30 @@ def create_app(
         version="0.1.0",
     )
 
+    # Production lifespan — closes all owned resources on shutdown
+    @app.on_event("shutdown")
+    async def _shutdown() -> None:
+        for resource in [_hitl, grant_repo]:
+            if resource is not None and hasattr(resource, "close"):
+                try:
+                    await resource.close()
+                except Exception:
+                    pass
+        store_resources = []
+        if approval_executor is not None:
+            store_resources.extend(
+                [
+                    getattr(approval_executor, "_idem", None),
+                    getattr(approval_executor, "_events", None),
+                ]
+            )
+        for r in store_resources:
+            if r is not None and hasattr(r, "close"):
+                try:
+                    await r.close()
+                except Exception:
+                    pass
+
     @app.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": "0.1.0"}
