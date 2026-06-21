@@ -29,7 +29,6 @@ from langgraph.graph import END, StateGraph
 from fxfill_banking_agent.auth import (
     ApprovalDecision,
     AuthorizationGateway,
-    AutoApprovePolicy,
     Operation,
     OperationKind,
 )
@@ -48,9 +47,12 @@ def _require_deps(
     llm: LLMProvider = cfg["llm"]
     mcp: MCPClient = cfg["mcp_client"]
     agent_cfg: AgentConfig = cfg.get("agent_config", AgentConfig())
-    auth: AuthorizationGateway = cfg.get(
-        "auth_gateway", AuthorizationGateway(policy=AutoApprovePolicy())
-    )
+    auth_raw = cfg.get("auth_gateway")
+    if auth_raw is None:
+        raise RuntimeError(
+            "graph requires an explicit AuthorizationGateway in configurable — refusing to fail open"
+        )
+    auth: AuthorizationGateway = auth_raw
     idem: IdempotencyStore | None = cfg.get("idempotency_store")
     return llm, mcp, agent_cfg, auth, idem
 

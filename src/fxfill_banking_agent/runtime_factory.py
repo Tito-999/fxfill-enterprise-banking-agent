@@ -58,7 +58,7 @@ async def create_runtime(
         config=config,
         llm=llm,
         mcp_client=mcp_client,
-        auth_gateway=auth_gateway or AuthorizationGateway(),
+        auth_gateway=auth_gateway,  # required — caller must provide
         event_store=event_store,
         metrics_collector=InMemoryMetricsCollector(),
         checkpoint_saver=checkpoint_saver,

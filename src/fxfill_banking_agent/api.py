@@ -77,7 +77,11 @@ def create_app(
         RuntimeError: If the HITL store is not configured when needed.
     """
     agent_cfg = config or AgentConfig()
-    gateway = auth_gateway or AuthorizationGateway(policy=AutoApprovePolicy())
+    if auth_gateway is None:
+        raise RuntimeError(
+            "create_app requires an explicit AuthorizationGateway — refusing to fail open"
+        )
+    gateway = auth_gateway
 
     # Durable HITL store: use provided or create from config
     if hitl_store is not None:

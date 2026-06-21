@@ -173,9 +173,13 @@ class AuthorizationGateway:
 
     def __init__(
         self,
-        policy: AuthorizationPolicy | None = None,
+        policy: AuthorizationPolicy,
     ) -> None:
-        self._policy = policy or AutoApprovePolicy()
+        if policy is None:
+            raise RuntimeError(
+                "AuthorizationGateway requires an explicit AuthorizationPolicy — refusing to fail open"
+            )
+        self._policy = policy
         self._decisions: list[AuthorizationDecision] = []
 
     @property

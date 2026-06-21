@@ -8,7 +8,7 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from fxfill_banking_agent.auth import AuthorizationGateway, AutoApprovePolicy
+from fxfill_banking_agent.auth import AuthorizationGateway
 from fxfill_banking_agent.checkpoint_store import SqliteCheckpointSaver
 from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.graph import build_agent_graph
@@ -43,7 +43,11 @@ class AgentRuntime:
         self.mcp_client = mcp_client
         self.event_store = event_store
         self.metrics_collector = metrics_collector or InMemoryMetricsCollector()
-        self.auth_gateway = auth_gateway or AuthorizationGateway(policy=AutoApprovePolicy())
+        if auth_gateway is None:
+            raise RuntimeError(
+                "AgentRuntime requires an explicit AuthorizationGateway — refusing to fail open"
+            )
+        self.auth_gateway = auth_gateway
 
         # Use durable SQLite checkpoint by default if a db path is configured
         if checkpoint_saver is not None:
