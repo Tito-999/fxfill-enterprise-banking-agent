@@ -127,7 +127,10 @@ class TestDeepSeekProvider:
         asyncio.get_event_loop().run_until_complete(provider.invoke([HumanMessage(content="hi")]))
         for req in transport.requests:
             assert "secret-token-12345" not in str(req)
-            assert req["headers"]["x-api-key"] == "[REDACTED]"
+            assert (
+                req["headers"].get("x-api-key") == "[REDACTED]"
+                or req["headers"].get("Authorization") == "[REDACTED]"
+            )
 
     def test_usage_parsing(self) -> None:
         transport = FakeHTTPTransport(

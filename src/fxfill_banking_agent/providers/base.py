@@ -23,7 +23,7 @@ class ProviderConfig:
     """
 
     provider_type: str = "deepseek"
-    base_url: str = "https://api.deepseek.com/anthropic/v1"
+    base_url: str = "https://api.deepseek.com/v1"
     model: str = "deepseek-v4-pro"
     token_env_var: str = "DEEPSEEK_API_TOKEN"
     request_timeout: float = 120.0

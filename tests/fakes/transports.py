@@ -26,9 +26,10 @@ class FakeHTTPTransport:
             )
         status, response_body = self._responses[self._index]
         self._index += 1
-        # Redact auth header in stored requests
-        if "x-api-key" in self.requests[-1]["headers"]:
-            self.requests[-1]["headers"]["x-api-key"] = "[REDACTED]"
+        # Redact auth headers in stored requests
+        for auth_key in ("x-api-key", "Authorization"):
+            if auth_key in self.requests[-1]["headers"]:
+                self.requests[-1]["headers"][auth_key] = "[REDACTED]"
         return status, response_body
 
 

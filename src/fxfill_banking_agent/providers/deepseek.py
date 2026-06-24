@@ -70,14 +70,13 @@ class DeepSeekProvider:
         body = self._build_request_body(messages, tools=tools, tool_choice=tool_choice)
         headers = {
             "Content-Type": "application/json",
-            "x-api-key": self._token,
-            "anthropic-version": "2023-06-01",
+            "Authorization": f"Bearer {self._token}",
             "X-Correlation-Id": correlation_id,
         }
 
         t0 = time_mod.monotonic()
         status, raw = await self._request_with_retry(
-            self._config.base_url + "/messages",
+            self._config.base_url + "/chat/completions",
             headers,
             json.dumps(body),
         )
