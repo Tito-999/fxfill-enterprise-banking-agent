@@ -1,11 +1,15 @@
 """Evaluation configuration and result tracking.
 
-This module defines the shape of evaluation results but does NOT
-import or access benchmark evaluators, reference actions, expected
-outputs, reward functions, or gold database states.
+.. warning::
+   **BENCHMARK RUNNER IS A PLACEHOLDER.** This module defines the shape
+   of evaluation results and configuration profiles, but does NOT contain
+   an executable benchmark runner. No τ³-bench evaluation has been run.
 
-Official evaluation is run manually outside Claude Code per the
-benchmark-integrity rules documented in ADR 005.
+   Official evaluation must be run manually outside Claude Code per the
+   benchmark-integrity rules documented in ADR 005.
+
+This module does NOT import or access benchmark evaluators, reference
+actions, expected outputs, reward functions, or gold database states.
 """
 
 from __future__ import annotations
