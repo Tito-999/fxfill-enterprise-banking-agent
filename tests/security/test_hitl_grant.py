@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage
-from langchain_core.runnables import RunnableConfig
+from langchain_core.messages import AIMessage
 
+from fxfill_banking_agent.agent import AgentRuntime
 from fxfill_banking_agent.auth import (
     ApprovedOperationGrant,
     ApprovedOperationGrantPolicy,
@@ -16,10 +16,8 @@ from fxfill_banking_agent.auth import (
     OperationKind,
     RequireApprovalPolicy,
 )
-from fxfill_banking_agent.graph import _tool_node
 from fxfill_banking_agent.llm import MockLLM
 from fxfill_banking_agent.mcp_client import StubMCPClient
-from fxfill_banking_agent.state import AgentState
 
 
 def _make_grant(**overrides) -> ApprovedOperationGrant:
@@ -213,68 +211,61 @@ class TestHITLPauseSignal:
 
     @pytest.mark.asyncio
     async def test_pause_contains_tool_data(self) -> None:
-        """RuntimeError from HITL contains JSON payload with tool info."""
+        """Graph interrupt on pending auth contains structured tool info."""
+        from fxfill_banking_agent.mcp_client import ToolResult
+
         auth = AuthorizationGateway(policy=RequireApprovalPolicy())
-        msg = AIMessage(
-            content="",
-            tool_calls=[
-                {
-                    "name": "submit_transfer",
-                    "args": {"draft_id": "draft-1", "user_id": "user-alice"},
-                    "id": "tc1",
-                }
-            ],
+        llm = MockLLM(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {
+                            "name": "submit_transfer",
+                            "args": {"draft_id": "draft-1", "user_id": "user-alice"},
+                            "id": "tc1",
+                        }
+                    ],
+                ),
+                AIMessage(content="done"),
+            ]
         )
-        state: AgentState = {
-            "messages": [HumanMessage(content="send"), msg],
-            "session_id": "sess-test",
-        }
+        mcp = StubMCPClient(tools={"submit_transfer": ToolResult("submit_transfer", True, "sent")})
+        runtime = AgentRuntime(llm=llm, mcp_client=mcp, auth_gateway=auth)
 
-        config = RunnableConfig(
-            configurable={
-                "llm": MockLLM(),
-                "mcp_client": StubMCPClient(),
-                "auth_gateway": auth,
-                "agent_config": None,
-            }
-        )
-
-        from fxfill_banking_agent.hitl_signal import HITLPending
-
-        with pytest.raises(HITLPending):
-            await _tool_node(state, config)
+        result = await runtime.run("send money", run_id="sess-test")
+        assert "__interrupt__" in result, "Expected graph interrupt for HITL approval"
+        interrupt_info = result["__interrupt__"]
+        assert interrupt_info["tool_name"] == "submit_transfer"
+        assert interrupt_info["tool_call_id"] == "tc1"
 
     @pytest.mark.asyncio
     async def test_pause_payload_parseable(self) -> None:
-        """The HITL JSON payload is valid and contains expected keys."""
+        """The HITL interrupt payload is valid and contains expected keys."""
+        from fxfill_banking_agent.mcp_client import ToolResult
+
         auth = AuthorizationGateway(policy=RequireApprovalPolicy())
-        msg = AIMessage(
-            content="",
-            tool_calls=[{"name": "submit_transfer", "args": {"draft_id": "draft-x"}, "id": "tc2"}],
+        llm = MockLLM(
+            [
+                AIMessage(
+                    content="",
+                    tool_calls=[
+                        {"name": "submit_transfer", "args": {"draft_id": "draft-x"}, "id": "tc2"}
+                    ],
+                ),
+                AIMessage(content="done"),
+            ]
         )
-        state: AgentState = {
-            "messages": [HumanMessage(content="send"), msg],
-            "session_id": "sess-parse",
-        }
+        mcp = StubMCPClient(tools={"submit_transfer": ToolResult("submit_transfer", True, "sent")})
+        runtime = AgentRuntime(llm=llm, mcp_client=mcp, auth_gateway=auth)
 
-        config = RunnableConfig(
-            configurable={
-                "llm": MockLLM(),
-                "mcp_client": StubMCPClient(),
-                "auth_gateway": auth,
-                "agent_config": None,
-            }
-        )
-
-        from fxfill_banking_agent.hitl_signal import HITLPending
-
-        try:
-            await _tool_node(state, config)
-        except HITLPending as pause:
-            assert pause.tool_name == "submit_transfer"
-            assert pause.session_id == "sess-parse"
-            assert pause.tool_args == {"draft_id": "draft-x"}
-            assert pause.tool_call_id == "tc2"
+        result = await runtime.run("send", run_id="sess-parse")
+        assert "__interrupt__" in result
+        interrupt_info = result["__interrupt__"]
+        assert interrupt_info["tool_name"] == "submit_transfer"
+        assert interrupt_info["session_id"] == "sess-parse"
+        assert interrupt_info["tool_args"] == {"draft_id": "draft-x"}
+        assert interrupt_info["tool_call_id"] == "tc2"
 
 
 class TestAutoApprovePolicyScan:

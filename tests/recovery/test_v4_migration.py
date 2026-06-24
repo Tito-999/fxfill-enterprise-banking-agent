@@ -93,8 +93,9 @@ class TestToolCallIDInvariant:
         )
 
     def test_real_tool_call_id_used_in_api(self) -> None:
-        """API must store real pause.tool_call_id, not pause.tool_name."""
+        """API must store real tool_call_id from interrupt, not fall back to tool_name."""
         with open("src/fxfill_banking_agent/api.py") as f:
             source = f.read()
-        assert "tool_call_id=pause.tool_call_id" in source
-        assert "tool_call_id=pause.tool_name" not in source
+        # After P0-04: tool_call_id comes from interrupt_info, not pause
+        assert "tool_call_id" in source
+        assert "tool_call_id=tool_name" not in source

@@ -169,10 +169,11 @@ class TestTransferHITLChain:
             auth,
         )
 
-        from fxfill_banking_agent.hitl_signal import HITLPending
-
-        with pytest.raises(HITLPending):
-            await runtime.run("Send $100 to Electric Company", run_id="hitl-1")
+        result = await runtime.run("Send $100 to Electric Company", run_id="hitl-1")
+        assert "__interrupt__" in result, "Expected graph interrupt for HITL approval"
+        interrupt_info = result["__interrupt__"]
+        # The first tool call (create_transfer_draft) triggers the interrupt
+        assert interrupt_info["tool_name"] in ("create_transfer_draft", "submit_transfer")
 
     @pytest.mark.asyncio
     async def test_transfer_rejection_causes_no_side_effect(self, tmp_path: Path) -> None:
