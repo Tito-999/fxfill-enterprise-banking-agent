@@ -67,6 +67,7 @@ module = [
     "fxfill_banking_agent.telemetry",
     "fxfill_banking_agent.auth_middleware",
     "fxfill_banking_agent.postgres_backend",
+    "fxfill_banking_agent.security.oidc",
 ]
 disallow_untyped_defs = false
 warn_unused_ignores = false
