@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import time as _time
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
@@ -497,7 +497,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._window = window_seconds
         self._counters: dict[str, list[float]] = {}
 
-    async def dispatch(self, request: Request, call_next: Any) -> Response:
+    async def dispatch(
+        self,
+        request: Request,
+        call_next: Callable[[Request], Awaitable[Response]],
+    ) -> Response:
         tenant = request.headers.get("X-Tenant-Id", "default")
         key = f"{tenant}:{request.url.path}"
         now = _time.monotonic()
