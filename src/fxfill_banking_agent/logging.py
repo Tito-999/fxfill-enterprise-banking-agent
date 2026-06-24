@@ -63,3 +63,15 @@ def configure_logging(
 def get_logger(name: str | None = None) -> structlog.BoundLogger:
     """Return a bound logger for the given module name."""
     return structlog.get_logger(name or __name__)  # type: ignore[no-any-return]
+
+
+def safe_log(logger: Any, event: str, **kwargs: object) -> None:
+    """Log an event with PII/secret fields redacted.
+
+    Wraps ``logger.info`` and applies ``safe_log_data`` from
+    the redacted_logger module before emitting.
+    """
+    from fxfill_banking_agent.redacted_logger import safe_log_data
+
+    safe_kwargs = safe_log_data({k: v for k, v in kwargs.items() if v is not None})
+    logger.info(event, **safe_kwargs)

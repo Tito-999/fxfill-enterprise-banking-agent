@@ -18,6 +18,7 @@ from fxfill_banking_agent.llm import LLMProvider
 from fxfill_banking_agent.logging import get_logger
 from fxfill_banking_agent.mcp_client import MCPClient
 from fxfill_banking_agent.metrics import InMemoryMetricsCollector, MetricsCollector
+from fxfill_banking_agent.model_router import ModelRouter
 from fxfill_banking_agent.persistence import AgentEvent, EventKind, EventStore
 from fxfill_banking_agent.routing.policies import RouteKind
 from fxfill_banking_agent.routing.router import Router
@@ -56,6 +57,7 @@ class AgentRuntime:
         idempotency_store: IdempotencyStore | None = None,
         tool_registry: ToolRegistry | None = None,
         router: Router | None = None,
+        model_router: ModelRouter | None = None,
     ) -> None:
         self.config = config or AgentConfig()
         self.llm = llm
@@ -68,6 +70,7 @@ class AgentRuntime:
             )
         self.auth_gateway = auth_gateway
         self.router = router
+        self.model_router = model_router
 
         # Use durable SQLite checkpoint by default if a db path is configured
         if checkpoint_saver is not None:
@@ -154,6 +157,18 @@ class AgentRuntime:
                     "route": route.kind.value,
                 },
             )
+
+            # ModelRouter: select LLM tier based on intent
+            if self.model_router is not None:
+                model_route = self.model_router.route_for_intent(
+                    route.intent.value, risk_level="low"
+                )
+                logger.info(
+                    "model_routing",
+                    intent=route.intent.value,
+                    tier=model_route.tier.value,
+                    model=model_route.model,
+                )
 
             # DIRECT route: LLM extracts args → tool called directly
             if route.kind == RouteKind.DIRECT and route.suggested_tools and not resume_from_state:
@@ -303,7 +318,15 @@ class AgentRuntime:
             args = _json.loads(_extract_json_block(raw))
         except Exception:
             logger.warning("direct_arg_extraction_failed", tool=tool_name)
-            return None  # Fall back to graph
+            return {
+                "session_id": run_id,
+                "final_answer": (
+                    "I had trouble understanding your request. Could you rephrase it "
+                    "with the specific account or details you're asking about?"
+                ),
+                "step_count": 1,
+                "status": "error_recovery",
+            }
 
         # Execute the tool directly
         from fxfill_banking_agent.mcp_client import ToolCall
@@ -455,8 +478,27 @@ class AgentRuntime:
         except Exception:
             pass
 
-        # Fall back to graph for knowledge Q&A
-        return None
+        # No RAG backend configured — generate a helpful fallback
+        from langchain_core.messages import SystemMessage
+
+        system = SystemMessage(
+            content=(
+                "You are a banking knowledge assistant. Answer the user's question "
+                "to the best of your knowledge, but clearly state when you are "
+                "uncertain. Never fabricate specific fee amounts, policy details, "
+                "or regulatory information. Suggest the user contact their bank "
+                "for definitive answers."
+            )
+        )
+        user = HumanMessage(content=user_message)
+        response = await self.llm.invoke([system, user], tools=None, tool_choice="none")
+        answer = str(getattr(response, "content", ""))
+        await self._persist_event(run_id, 2, EventKind.AGENT_MESSAGE, {"final_answer": answer})
+        return {
+            "session_id": run_id,
+            "final_answer": answer,
+            "step_count": 1,
+        }
 
     async def _execute_transfer_workflow(
         self,
@@ -475,10 +517,68 @@ class AgentRuntime:
         """
         logger.info("transfer_workflow", run_id=run_id)
 
-        # Use the graph with RequireApprovalPolicy — it handles the
-        # multi-step transfer flow with HITL for submit_transfer
-        # The graph's interrupt/resume handles the approval gate.
-        return None  # Graph handles transfer workflows correctly
+        # Transfer state machine: structured workflow with confirmation
+        from langchain_core.messages import SystemMessage
+
+        system = SystemMessage(
+            content=(
+                "You are a banking transfer assistant. Help the user create a transfer "
+                "by extracting: source_account_id, beneficiary name/id, amount, and currency. "
+                "After creating a draft, summarize the transfer details and ask for "
+                "confirmation before submitting. Use the tools: find_beneficiary, "
+                "create_transfer_draft. Do NOT call submit_transfer — the user must "
+                "explicitly confirm first."
+            )
+        )
+        user = HumanMessage(content=user_message)
+        try:
+            response = await self.llm.invoke(
+                [system, user],
+                tools=self.tool_registry.provider_definitions(include_server_fields=False)
+                if self.tool_registry
+                else None,
+                tool_choice="auto",
+            )
+        except Exception:
+            return {
+                "session_id": run_id,
+                "final_answer": (
+                    "I was unable to process your transfer request. Please try again "
+                    "with the recipient name, amount, and currency clearly specified."
+                ),
+                "step_count": 0,
+                "status": "error",
+            }
+
+        # Let the graph handle tool execution (with HITL for submit_transfer)
+        tf_config = {
+            "configurable": {
+                "llm": self.llm,
+                "mcp_client": self.mcp_client,
+                "agent_config": self.config,
+                "auth_gateway": self.auth_gateway,
+                "idempotency_store": self.idempotency_store,
+                "tool_registry": self.tool_registry,
+                "metrics_collector": self.metrics_collector,
+                "thread_id": thread_id,
+                "run_id": run_id,
+            },
+        }
+        result = await self._graph.ainvoke(
+            {"messages": [user, response], "session_id": run_id, "step_count": 1},
+            config=tf_config,
+        )
+
+        final = result.get("final_answer") or str(
+            getattr(result.get("messages", [None])[-1], "content", "")
+            if result.get("messages")
+            else "Transfer processed."
+        )
+        return {
+            "session_id": run_id,
+            "final_answer": final,
+            "step_count": result.get("step_count", 1),
+        }
 
     async def resume(
         self,

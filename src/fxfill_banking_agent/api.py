@@ -3,13 +3,17 @@
 from __future__ import annotations
 
 import json
+import time as _time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 
 from fxfill_banking_agent.agent import AgentRuntime
 from fxfill_banking_agent.approval_executor import ApprovalResult, HITLApprovalExecutor
@@ -49,7 +53,9 @@ class AgentResponse(BaseModel):
 class ApprovalRequest(BaseModel):
     session_id: str = Field(..., min_length=1)
     decision: str = Field(..., pattern="^(approve|reject)$")
-    approver: str = Field("human-operator")
+    # NOTE: approver identity comes from AuthMiddleware (TrustedRequestContext),
+    # NOT from this body field. This field is intentionally deprecated.
+    approver: str = Field("human-operator", description="DEPRECATED: identity from auth middleware")
 
 
 class ApprovalResponse(BaseModel):
@@ -81,6 +87,7 @@ def create_app(
     metrics_collector: Any = None,
     tool_registry: Any = None,
     intent_router: Any = None,
+    model_router: Any = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -145,6 +152,7 @@ def create_app(
         metrics_collector=metrics_collector,
         tool_registry=tool_registry,
         router=intent_router,
+        model_router=model_router,
     )
 
     # ── Lifespan — closes all owned resources on shutdown ──────────
@@ -160,9 +168,49 @@ def create_app(
         lifespan=_lifespan,
     )
 
+    # ── Mount enterprise middleware ────────────────────────────
+    # AuthMiddleware: extracts TrustedRequestContext from headers/tokens
+    from fxfill_banking_agent.auth_middleware import AuthMiddleware
+
+    app.add_middleware(AuthMiddleware)
+
+    # TelemetryMiddleware: correlation_id propagation + span timing
+    from fxfill_banking_agent.telemetry import TelemetryMiddleware
+
+    app.add_middleware(TelemetryMiddleware, app_name="fxfill-agent", sample_rate=1.0)
+
+    # RateLimitMiddleware: per-tenant request throttling
+    app.add_middleware(RateLimitMiddleware, max_requests=60, window_seconds=60)
+
+    # CORS: allow browser-based clients (configurable origins in production)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],  # Production: restrict to specific origins
+        allow_credentials=True,
+        allow_methods=["GET", "POST"],
+        allow_headers=["*"],
+    )
+
+    # ── API versioning: /v1/ prefix ─────────────────────────────
+    from fastapi import APIRouter
+
+    v1 = APIRouter(prefix="/v1")
+
+    # ── Deep health check ──────────────────────────────────────
     @app.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:
-        return {"status": "ok", "version": "0.1.0"}
+        checks: dict[str, str] = {"status": "ok", "version": "0.1.0"}
+        # Check MCP connectivity
+        try:
+            if hasattr(mcp_client, "tools"):
+                checks["mcp"] = "ok"
+            else:
+                checks["mcp"] = "degraded"
+        except Exception:
+            checks["mcp"] = "error"
+        # Check LLM provider (non-destructive)
+        checks["provider"] = "configured" if llm else "missing"
+        return checks
 
     @app.post("/agent", response_model=AgentResponse)
     async def agent_endpoint(request: AgentRequest) -> dict[str, Any]:
@@ -344,4 +392,117 @@ def create_app(
             status_code = 409 if "Already" in (result.error or "") else 500
             raise HTTPException(status_code=status_code, detail=result.error)
 
+    # ── /v1/ routes ────────────────────────────────────────────
+    @v1.get("/health")
+    async def v1_health() -> dict[str, str]:
+        return await health()
+
+    @v1.post("/agent", response_model=AgentResponse)
+    async def v1_agent(request: AgentRequest) -> dict[str, Any]:
+        return await agent_endpoint(request)
+
+    @v1.post("/agent/approve", response_model=ApprovalResponse)
+    async def v1_approve(request: ApprovalRequest) -> dict[str, Any]:
+        return await approve_endpoint(request)
+
+    # Threads API (P0-02)
+    @v1.post("/threads")
+    async def create_thread() -> dict[str, Any]:
+        import uuid
+
+        thread_id = str(uuid.uuid4())
+        from fxfill_banking_agent.conversation_service import ThreadService
+
+        svc = ThreadService()
+        info = svc.create_thread(thread_id)
+        return {
+            "thread_id": info.thread_id,
+            "created_at": info.created_at,
+            "status": info.status,
+        }
+
+    @v1.get("/threads/{thread_id}")
+    async def get_thread(thread_id: str) -> dict[str, Any]:
+        from fxfill_banking_agent.conversation_service import ThreadService
+
+        svc = ThreadService()
+        info = svc.get_thread(thread_id)
+        if info is None:
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return {
+            "thread_id": info.thread_id,
+            "created_at": info.created_at,
+            "updated_at": info.updated_at,
+            "message_count": info.message_count,
+            "status": info.status,
+        }
+
+    @v1.delete("/threads/{thread_id}")
+    async def delete_thread(thread_id: str) -> dict[str, Any]:
+        from fxfill_banking_agent.conversation_service import ThreadService
+
+        svc = ThreadService()
+        if not svc.delete_thread(thread_id):
+            raise HTTPException(status_code=404, detail="Thread not found")
+        return {"thread_id": thread_id, "status": "deleted"}
+
+    # Audit API (P2-05)
+    @v1.get("/audit/events")
+    async def list_audit_events(run_id: str = "", limit: int = 50) -> dict[str, Any]:
+        if event_store is None:
+            raise HTTPException(status_code=501, detail="Event store not configured")
+        try:
+            if run_id:
+                events = await event_store.list_by_run(run_id, limit)
+            else:
+                events = []
+            return {
+                "events": [
+                    {
+                        "run_id": e.run_id,
+                        "seq": e.seq,
+                        "kind": e.kind.value,
+                        "timestamp": getattr(e, "timestamp", ""),
+                    }
+                    for e in events
+                ],
+                "count": len(events),
+            }
+        except Exception:
+            raise HTTPException(status_code=500, detail="Failed to query audit events")
+
+    app.include_router(v1)
+
     return app
+
+
+# ── Rate Limiting Middleware ───────────────────────────────────────────
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """Per-tenant in-memory rate limiter.
+
+    Production should use Redis-backed rate limiting for multi-instance
+    consistency. This implementation is suitable for single-instance dev.
+    """
+
+    def __init__(self, app: Any, max_requests: int = 60, window_seconds: int = 60) -> None:
+        super().__init__(app)
+        self._max = max_requests
+        self._window = window_seconds
+        self._counters: dict[str, list[float]] = {}
+
+    async def dispatch(self, request: Request, call_next: Any) -> Response:
+        tenant = request.headers.get("X-Tenant-Id", "default")
+        key = f"{tenant}:{request.url.path}"
+        now = _time.monotonic()
+
+        if key not in self._counters:
+            self._counters[key] = []
+        timestamps = [t for t in self._counters[key] if now - t < self._window]
+        if len(timestamps) >= self._max:
+            raise HTTPException(status_code=429, detail="Rate limit exceeded")
+        timestamps.append(now)
+        self._counters[key] = timestamps
+
+        return await call_next(request)

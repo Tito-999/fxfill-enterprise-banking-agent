@@ -193,7 +193,11 @@ async def bootstrap_app(
             reasoning_model=pcfg.model,
         )
         logger.info("model_router_created", tiers=3)
-        _ = model_router  # Wired for future model-tier selection
+
+        # ── Prompt Registry (P1-05) ────────────────────────────────
+        from fxfill_banking_agent.prompt_registry import default_registry as prompt_registry
+
+        logger.info("prompt_registry_loaded", prompt_count=prompt_registry.count)
 
         # ── Intent Router (P1-01) ──────────────────────────────────
         from fxfill_banking_agent.routing.router import Router
@@ -215,6 +219,7 @@ async def bootstrap_app(
             idempotency_store=idem_store,
             tool_registry=tool_registry,
             intent_router=intent_router,
+            model_router=model_router,
         )
 
         logger.info("bootstrap_complete", production=production_mode, db_path=db_path)
