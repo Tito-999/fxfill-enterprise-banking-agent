@@ -191,8 +191,20 @@ class DeepSeekProvider:
         choice = (data.get("choices") or [{}])[0] if "choices" in data else data
         msg = choice.get("message", {})
 
+        # Debug: log raw response structure when content is empty
+        if not msg.get("content"):
+            logger.info(
+                "provider_debug_raw_keys",
+                keys=list(data.keys()),
+                has_choices="choices" in data,
+                raw_len=len(raw),
+            )
+
         if isinstance(msg, dict):
             content = msg.get("content", "") or ""
+            # DeepSeek may return content directly at top level
+            if not content and "content" in data:
+                content = data.get("content", "") or ""
             raw_tool_calls = msg.get("tool_calls", [])
             if raw_tool_calls:
                 tool_calls = [
