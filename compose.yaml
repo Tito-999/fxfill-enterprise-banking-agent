@@ -1,12 +1,3 @@
-# Docker Compose — local production-like stack for development and testing.
-#
-# Services:
-#   agent       — FastAPI banking agent (this repository)
-#   postgres    — PostgreSQL for durable storage (checkpoints, events, grants)
-#   redis       — Redis for short-term coordination (rate limits, cache)
-#
-# Never use real credentials or customer data with this compose file.
-
 services:
   agent:
     build: .
@@ -17,6 +8,7 @@ services:
       - FXFILL_ENV=development
       - FXFILL_DB_URL=postgresql+asyncpg://fxfill:fxfill@postgres:5432/fxfill
       - FXFILL_REDIS_URL=redis://redis:6379/0
+      - PERSISTENCE_DB_PATH=/app/data/agent.db
     depends_on:
       postgres:
         condition: service_healthy
@@ -26,11 +18,17 @@ services:
       - agent_data:/app/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)",
+        ]
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
+      start_period: 15s
 
   postgres:
     image: postgres:16-alpine
