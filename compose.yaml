@@ -1,0 +1,65 @@
+# Docker Compose — local production-like stack for development and testing.
+#
+# Services:
+#   agent       — FastAPI banking agent (this repository)
+#   postgres    — PostgreSQL for durable storage (checkpoints, events, grants)
+#   redis       — Redis for short-term coordination (rate limits, cache)
+#
+# Never use real credentials or customer data with this compose file.
+
+services:
+  agent:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - DEEPSEEK_API_TOKEN=${DEEPSEEK_API_TOKEN:-}
+      - FXFILL_ENV=development
+      - FXFILL_DB_URL=postgresql+asyncpg://fxfill:fxfill@postgres:5432/fxfill
+      - FXFILL_REDIS_URL=redis://redis:6379/0
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - agent_data:/app/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fxfill
+      POSTGRES_PASSWORD: fxfill
+      POSTGRES_DB: fxfill
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fxfill"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+volumes:
+  agent_data:
+  pg_data:

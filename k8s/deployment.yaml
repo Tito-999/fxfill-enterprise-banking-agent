@@ -1,0 +1,115 @@
+# Kubernetes deployment — FxFill Enterprise Banking Agent
+# Requires: PostgreSQL + Redis (see k8s/statefulset.yaml)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fxfill-agent
+  labels:
+    app: fxfill-agent
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+  selector:
+    matchLabels:
+      app: fxfill-agent
+  template:
+    metadata:
+      labels:
+        app: fxfill-agent
+    spec:
+      serviceAccountName: fxfill-agent
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: agent
+          image: ghcr.io/tito-999/fxfill-agent:latest
+          ports:
+            - containerPort: 8000
+              name: http
+          env:
+            - name: FXFILL_ENV
+              value: "production"
+            - name: FXFILL_DB_URL
+              valueFrom:
+                secretKeyRef:
+                  name: fxfill-secrets
+                  key: database-url
+            - name: DEEPSEEK_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: fxfill-secrets
+                  key: deepseek-token
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 512Mi
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          volumeMounts:
+            - name: data
+              mountPath: /app/data
+              readOnly: false
+      volumes:
+        - name: data
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fxfill-agent
+spec:
+  selector:
+    app: fxfill-agent
+  ports:
+    - port: 8000
+      targetPort: 8000
+      name: http
+  type: ClusterIP
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: fxfill-agent-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: fxfill-agent
+  minReplicas: 3
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: fxfill-agent-pdb
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: fxfill-agent

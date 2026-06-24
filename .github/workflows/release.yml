@@ -1,0 +1,62 @@
+# Release pipeline — SBOM generation, container build, security scans
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (CycloneDX)
+        uses: CycloneDX/gh-python-generate-sbom@v1
+        with:
+          output: sbom.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom.json
+
+  container:
+    name: Build & Scan Container
+    runs-on: ubuntu-latest
+    needs: [sbom]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t fxfill-agent:${{ github.ref_name }} .
+      - name: Container scan (Trivy)
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: fxfill-agent:${{ github.ref_name }}
+          format: sarif
+          output: trivy-results.sarif
+      - uses: actions/upload-artifact@v4
+        with:
+          name: container-scan
+          path: trivy-results.sarif
+
+  secret-scan:
+    name: Secret Scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --verbose --redact
+
+  provenance:
+    name: Generate Provenance
+    runs-on: ubuntu-latest
+    needs: [container]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SLSA provenance
+        uses: slsa-framework/slsa-github-generator/.github/workflows/generator_container_slsa3.yml@v2
+        with:
+          image: fxfill-agent:${{ github.ref_name }}

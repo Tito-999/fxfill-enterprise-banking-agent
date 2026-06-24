@@ -1,0 +1,89 @@
+# CI Pipeline — FxFill Enterprise Banking Agent
+#
+# Runs on every push and PR to main.
+# Gates: lint, format, mypy, unit tests, security scan, container build.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: Lint & Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run ruff check .
+      - run: uv run ruff format --check .
+
+  typecheck:
+    name: Type Check (mypy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run mypy src
+
+  test:
+    name: Unit & Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run pytest -q --cov=src --cov-report=term-missing
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run pytest tests/security/ -q
+      - name: Secret scan
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . --verbose
+
+  container:
+    name: Container Build
+    runs-on: ubuntu-latest
+    needs: [test, security]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: docker build -t fxfill-agent:ci .
+
+  migration:
+    name: Migration Validation
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v2
+        with:
+          python-version: "3.12"
+      - run: uv sync --group dev
+      - run: uv run pytest tests/recovery/ -q -k "migration"
