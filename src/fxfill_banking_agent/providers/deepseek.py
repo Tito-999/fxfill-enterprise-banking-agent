@@ -191,18 +191,13 @@ class DeepSeekProvider:
         choice = (data.get("choices") or [{}])[0] if "choices" in data else data
         msg = choice.get("message", {})
 
-        # Debug: log raw response for diagnosis
-        if not msg.get("content"):
-            logger.info(
-                "provider_debug_raw",
-                raw_first_500=raw[:500],
-                choice=choice,
-                msg_keys=list(msg.keys()) if isinstance(msg, dict) else "not_dict",
-            )
-
         if isinstance(msg, dict):
             content = msg.get("content", "") or ""
-            # DeepSeek may return content directly at top level
+            # DeepSeek v4 (reasoning model) may return reasoning_content
+            # when max_tokens is too low for the final answer
+            if not content:
+                content = msg.get("reasoning_content", "") or ""
+            # Fallback: top-level content
             if not content and "content" in data:
                 content = data.get("content", "") or ""
             raw_tool_calls = msg.get("tool_calls", [])

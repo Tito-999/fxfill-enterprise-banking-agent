@@ -44,7 +44,8 @@ class TestLiveProvider:
         from fxfill_banking_agent.providers.base import ProviderConfig
         from fxfill_banking_agent.providers.deepseek import DeepSeekProvider
 
-        config = ProviderConfig(max_tokens=16, request_timeout=30)
+        # DeepSeek v4 reasoning model needs enough tokens for thinking + answer
+        config = ProviderConfig(max_tokens=256, request_timeout=30)
         provider = DeepSeekProvider(config=config, token=token)
 
         try:
