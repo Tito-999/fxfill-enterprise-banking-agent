@@ -191,13 +191,13 @@ class DeepSeekProvider:
         choice = (data.get("choices") or [{}])[0] if "choices" in data else data
         msg = choice.get("message", {})
 
-        # Debug: log raw response structure when content is empty
+        # Debug: log raw response for diagnosis
         if not msg.get("content"):
             logger.info(
-                "provider_debug_raw_keys",
-                keys=list(data.keys()),
-                has_choices="choices" in data,
-                raw_len=len(raw),
+                "provider_debug_raw",
+                raw_first_500=raw[:500],
+                choice=choice,
+                msg_keys=list(msg.keys()) if isinstance(msg, dict) else "not_dict",
             )
 
         if isinstance(msg, dict):
