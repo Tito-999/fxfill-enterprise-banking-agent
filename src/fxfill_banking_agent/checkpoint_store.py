@@ -11,6 +11,7 @@ from typing import Any, AsyncIterator
 
 import aiosqlite
 from langgraph.checkpoint.base import BaseCheckpointSaver, CheckpointTuple
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 
 from fxfill_banking_agent.db import CURRENT_SCHEMA_VERSION, init_database
 from fxfill_banking_agent.logging import get_logger
@@ -21,13 +22,16 @@ logger = get_logger(__name__)
 class SqliteCheckpointSaver(BaseCheckpointSaver):  # type: ignore[type-arg]
     """SQLite-backed LangGraph checkpoint saver.
 
+    Uses LangGraph's ``JsonPlusSerializer`` to correctly serialize
+    LangChain message objects that are not natively JSON-serializable.
+
     Args:
         db_path: Path to the SQLite database file. Created if it does
             not exist.
     """
 
     def __init__(self, db_path: str | Path) -> None:
-        super().__init__()
+        super().__init__(serde=JsonPlusSerializer())
         self._db_path = Path(db_path)
         self._conn: aiosqlite.Connection | None = None
 
@@ -83,7 +87,8 @@ class SqliteCheckpointSaver(BaseCheckpointSaver):  # type: ignore[type-arg]
         metadata: dict[str, Any],
         new_versions: dict[str, str],
     ) -> dict[str, Any]:
-        import json
+        import base64
+        import json as _json
         from datetime import datetime, timezone
 
         conn = await self._ensure_connected()
@@ -91,6 +96,18 @@ class SqliteCheckpointSaver(BaseCheckpointSaver):  # type: ignore[type-arg]
         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
         checkpoint_id = checkpoint["id"]
         parent_checkpoint_id = checkpoint.get("parent_checkpoint_id")
+
+        # JsonPlusSerializer.dumps_typed returns (type_str, bytes).
+        # We encode bytes as base64 for safe SQLite storage.
+        ck_typed = self.serde.dumps_typed(checkpoint)
+        md_typed = self.serde.dumps_typed(metadata)
+
+        serialized_checkpoint = _json.dumps(
+            [ck_typed[0], base64.b64encode(ck_typed[1]).decode("ascii")]
+        )
+        serialized_metadata = _json.dumps(
+            [md_typed[0], base64.b64encode(md_typed[1]).decode("ascii")]
+        )
 
         now = datetime.now(timezone.utc).isoformat()
         await conn.execute(
@@ -103,22 +120,81 @@ class SqliteCheckpointSaver(BaseCheckpointSaver):  # type: ignore[type-arg]
                 checkpoint_id,
                 parent_checkpoint_id,
                 "checkpoint",
-                json.dumps(checkpoint),
-                json.dumps(metadata),
+                serialized_checkpoint,
+                serialized_metadata,
                 now,
             ),
         )
         await conn.commit()
         return config
 
+    async def aput_writes(  # type: ignore[override]
+        self,
+        config: dict[str, Any],
+        writes: list[tuple[str, Any]],
+        task_id: str,
+        task_path: str = "",
+    ) -> None:
+        """Store intermediate writes linked to a checkpoint.
+
+        These are channel-level updates produced during graph execution.
+        """
+        import base64
+        import json as _json
+        from datetime import datetime, timezone
+
+        conn = await self._ensure_connected()
+        thread_id = config["configurable"]["thread_id"]
+        checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
+        checkpoint_id = config["configurable"].get("checkpoint_id", "")
+        now = datetime.now(timezone.utc).isoformat()
+
+        for idx, (channel, value) in enumerate(writes):
+            typed = self.serde.dumps_typed(value)
+            serialized = _json.dumps([typed[0], base64.b64encode(typed[1]).decode("ascii")])
+            await conn.execute(
+                "INSERT OR REPLACE INTO channel_writes "
+                "(thread_id, checkpoint_ns, checkpoint_id, task_id, task_path, idx, channel, value, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    thread_id,
+                    checkpoint_ns,
+                    checkpoint_id,
+                    task_id,
+                    task_path,
+                    idx,
+                    channel,
+                    serialized,
+                    now,
+                ),
+            )
+        await conn.commit()
+
     async def adelete_thread(self, thread_id: str) -> None:
         conn = await self._ensure_connected()
+        await conn.execute("DELETE FROM channel_writes WHERE thread_id=?", (thread_id,))
         await conn.execute("DELETE FROM checkpoints WHERE thread_id=?", (thread_id,))
         await conn.commit()
 
 
 def _row_to_tuple(row: aiosqlite.Row) -> CheckpointTuple:
-    import json
+    import base64
+    import json as _json
+
+    serde = JsonPlusSerializer()
+
+    # The checkpoint/metadata are stored as JSON-encoded [type_str, base64_data]
+    # from JsonPlusSerializer.dumps_typed().
+    def _decode(raw: str | bytes) -> Any:
+        if isinstance(raw, str):
+            parts = _json.loads(raw)
+            # parts is [type_str, base64_encoded_bytes]
+            return serde.loads_typed((str(parts[0]), base64.b64decode(parts[1])))
+        # Legacy path: raw bytes from BLOB column (pre-v6 databases)
+        return serde.loads_typed(("json", raw))
+
+    checkpoint = _decode(row["checkpoint"])
+    metadata_raw: Any = _decode(row["metadata"]) if row["metadata"] else {}
 
     return CheckpointTuple(
         config={
@@ -128,8 +204,8 @@ def _row_to_tuple(row: aiosqlite.Row) -> CheckpointTuple:
                 "checkpoint_id": row["checkpoint_id"],
             }
         },
-        checkpoint=json.loads(row["checkpoint"]),
-        metadata=json.loads(row["metadata"]) if row["metadata"] else {},
+        checkpoint=checkpoint,
+        metadata=metadata_raw,
         parent_config=(
             {
                 "configurable": {

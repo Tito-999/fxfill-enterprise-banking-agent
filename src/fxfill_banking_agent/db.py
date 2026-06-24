@@ -19,7 +19,7 @@ from fxfill_banking_agent.logging import get_logger
 
 logger = get_logger(__name__)
 
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 # Track open connections for deterministic shutdown
 _open_connections: list[aiosqlite.Connection] = []
@@ -100,6 +100,8 @@ async def init_database(
             await _migrate_v4(conn)
         if current < 5 and schema_version >= 5:
             await _migrate_v5(conn)
+        if current < 6 and schema_version >= 6:
+            await _migrate_v6(conn)
 
         if current < schema_version:
             await conn.execute(
@@ -373,3 +375,24 @@ async def _migrate_v5(conn: aiosqlite.Connection) -> None:
     )
     await conn.commit()
     logger.info("migration_v5_complete")
+
+
+async def _migrate_v6(conn: aiosqlite.Connection) -> None:
+    """Create v6 table: channel_writes for LangGraph checkpoint writes."""
+    await conn.execute(
+        "CREATE TABLE IF NOT EXISTS channel_writes ("
+        "  thread_id TEXT NOT NULL,"
+        "  checkpoint_ns TEXT NOT NULL DEFAULT '',"
+        "  checkpoint_id TEXT NOT NULL,"
+        "  task_id TEXT NOT NULL,"
+        "  task_path TEXT NOT NULL DEFAULT '',"
+        "  idx INTEGER NOT NULL,"
+        "  channel TEXT NOT NULL,"
+        "  value BLOB NOT NULL,"
+        "  created_at TEXT NOT NULL,"
+        "  PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)"
+        ")"
+    )
+    await conn.execute("CREATE INDEX IF NOT EXISTS idx_writes_thread ON channel_writes(thread_id)")
+    await conn.commit()
+    logger.info("migration_v6_complete")

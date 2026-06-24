@@ -6,7 +6,7 @@ deterministic mock for testing.
 
 from __future__ import annotations
 
-from typing import Protocol
+from typing import Any, Protocol
 
 from langchain_core.messages import AIMessage, BaseMessage
 
@@ -18,11 +18,20 @@ class LLMProvider(Protocol):
     phases it wraps a real provider via langchain-core's ChatModel.
     """
 
-    async def invoke(self, messages: list[BaseMessage]) -> AIMessage:
+    async def invoke(
+        self,
+        messages: list[BaseMessage],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> AIMessage:
         """Invoke the model with a list of messages.
 
         Args:
             messages: The conversation history.
+            tools: Optional tool schemas in provider-native format.
+            tool_choice: Optional tool selection control
+                (``"auto"``, ``"none"``, ``"required"``, or a specific tool dict).
 
         Returns:
             The model's response as an AIMessage.
@@ -51,8 +60,19 @@ class MockLLM:
         self._index = 0
         self.call_count = 0
 
-    async def invoke(self, messages: list[BaseMessage]) -> AIMessage:
+    async def invoke(
+        self,
+        messages: list[BaseMessage],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> AIMessage:
         """Return the next canned response.
+
+        Args:
+            messages: The conversation history (recorded but canned responses are fixed).
+            tools: Optional tool schemas (ignored by mock — response is pre-scripted).
+            tool_choice: Optional tool selection control (ignored by mock).
 
         Raises:
             StopIteration: When the response queue is exhausted.
@@ -81,8 +101,20 @@ class EchoLLM:
         self._prefix = prefix
         self.call_count = 0
 
-    async def invoke(self, messages: list[BaseMessage]) -> AIMessage:
-        """Return the last human message prefixed with ``Echo: ``."""
+    async def invoke(
+        self,
+        messages: list[BaseMessage],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> AIMessage:
+        """Return the last human message prefixed with ``Echo: ``.
+
+        Args:
+            messages: The conversation history.
+            tools: Optional tool schemas (ignored by echo).
+            tool_choice: Optional tool selection control (ignored by echo).
+        """
         self.call_count += 1
         last = messages[-1]
         content = last.content if hasattr(last, "content") else str(last)

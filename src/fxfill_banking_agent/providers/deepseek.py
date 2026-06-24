@@ -44,18 +44,30 @@ class DeepSeekProvider:
         self._transport = transport or _RealHTTPTransport()
         self._closed = False
 
-    async def invoke(self, messages: list[BaseMessage]) -> AIMessage:
+    async def invoke(
+        self,
+        messages: list[BaseMessage],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> AIMessage:
         """Send messages to DeepSeek and return the AI response.
 
         Converts LangChain messages to the provider format, sends the
         request with retry/backoff, and parses the response back into
         an AIMessage.
+
+        Args:
+            messages: The conversation history.
+            tools: Optional tool schemas in OpenAI function-calling format.
+            tool_choice: Optional tool selection control
+                (``"auto"``, ``"none"``, ``"required"``, or a specific tool dict).
         """
         if self._closed:
             raise RuntimeError("DeepSeekProvider is closed")
 
         correlation_id = str(uuid.uuid4())
-        body = self._build_request_body(messages)
+        body = self._build_request_body(messages, tools=tools, tool_choice=tool_choice)
         headers = {
             "Content-Type": "application/json",
             "x-api-key": self._token,
@@ -90,7 +102,13 @@ class DeepSeekProvider:
         if hasattr(self._transport, "close"):
             await self._transport.close()  # type: ignore[attr-defined]
 
-    def _build_request_body(self, messages: list[BaseMessage]) -> dict[str, Any]:
+    def _build_request_body(
+        self,
+        messages: list[BaseMessage],
+        *,
+        tools: list[dict[str, Any]] | None = None,
+        tool_choice: str | dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         converted: list[dict[str, Any]] = []
         for m in messages:
             role = _map_role(type(m).__name__)
@@ -104,12 +122,19 @@ class DeepSeekProvider:
 
             converted.append(msg)
 
-        return {
+        body: dict[str, Any] = {
             "model": self._config.model,
             "max_tokens": self._config.max_tokens,
             "temperature": self._config.temperature,
             "messages": converted,
         }
+
+        if tools:
+            body["tools"] = tools
+        if tool_choice is not None:
+            body["tool_choice"] = tool_choice
+
+        return body
 
     async def _request_with_retry(
         self, url: str, headers: dict[str, str], body: str
