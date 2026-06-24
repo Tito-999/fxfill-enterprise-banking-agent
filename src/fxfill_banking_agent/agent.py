@@ -44,6 +44,19 @@ def _extract_json_block(text: str) -> str:
 class AgentRuntime:
     """Composed agent runtime with graph, persistence, metrics, and logging."""
 
+    # ── Tools that MUST have server-injected user_id ───────────────
+    _IDENTITY_TOOLS: frozenset[str] = frozenset(
+        {
+            "get_account_summary",
+            "get_balance",
+            "list_transactions",
+            "create_transfer_draft",
+            "submit_transfer",
+            "cancel_transfer",
+            "report_suspicious_transaction",
+        }
+    )
+
     def __init__(
         self,
         *,
@@ -106,6 +119,7 @@ class AgentRuntime:
         run_id: str | None = None,
         thread_id: str | None = None,
         resume_from_state: dict[str, Any] | None = None,
+        trusted_context: Any = None,
     ) -> dict[str, Any]:
         run_id = run_id or str(uuid.uuid4())
         thread_id = thread_id or run_id
@@ -172,7 +186,9 @@ class AgentRuntime:
 
             # DIRECT route: LLM extracts args → tool called directly
             if route.kind == RouteKind.DIRECT and route.suggested_tools and not resume_from_state:
-                result = await self._execute_direct(route, run_id, thread_id, user_message)
+                result = await self._execute_direct(
+                    route, run_id, thread_id, user_message, trusted_context=trusted_context
+                )
                 if result is not None:
                     self.metrics_collector.finish_run()
                     return result
@@ -284,6 +300,7 @@ class AgentRuntime:
         run_id: str,
         thread_id: str,
         user_message: str = "",
+        trusted_context: Any = None,
     ) -> dict[str, Any] | None:
         """Execute a DIRECT route: LLM extracts args, tool is called, result returned.
 
@@ -295,15 +312,34 @@ class AgentRuntime:
         tool_name = route.suggested_tools[0]
         logger.info("direct_route", tool=tool_name, run_id=run_id)
 
+        # Fail closed: identity-sensitive tools require authenticated user
+        if tool_name in self._IDENTITY_TOOLS:
+            if trusted_context is None:
+                return {
+                    "session_id": run_id,
+                    "final_answer": "Authentication is required for this operation.",
+                    "step_count": 1,
+                    "status": "auth_required",
+                }
+            subject = getattr(trusted_context, "subject_id", "")
+            if subject in ("anonymous", ""):
+                return {
+                    "session_id": run_id,
+                    "final_answer": "Authentication is required for this operation.",
+                    "step_count": 1,
+                    "status": "auth_required",
+                }
+
         from langchain_core.messages import SystemMessage
 
-        # Use LLM to extract structured arguments for the tool
+        # Use LLM to extract structured arguments for the tool.
+        # NEVER ask LLM for user_id — it will be server-injected.
         system = SystemMessage(
             content=(
                 f"You are a banking assistant. Extract the required parameters "
                 f"for the tool '{tool_name}' from the user's request. "
-                f"Respond with ONLY a JSON object containing the parameter names "
-                f"and values. Do not add any other text."
+                f"Do NOT include user_id or tenant_id — these are handled by the system. "
+                f"Respond with ONLY a JSON object. Do not add any other text."
             )
         )
         user = HumanMessage(content=user_message)
@@ -327,6 +363,13 @@ class AgentRuntime:
                 "step_count": 1,
                 "status": "error_recovery",
             }
+
+        # ── Server-inject identity fields, override any LLM value ──────
+        if tool_name in self._IDENTITY_TOOLS and trusted_context is not None:
+            subject = getattr(trusted_context, "subject_id", "")
+            tenant = getattr(trusted_context, "tenant_id", "default")
+            args["user_id"] = subject
+            args["tenant_id"] = tenant
 
         # Execute the tool directly
         from fxfill_banking_agent.mcp_client import ToolCall

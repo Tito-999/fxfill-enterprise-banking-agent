@@ -213,24 +213,25 @@ def create_app(
         return checks
 
     @app.post("/agent", response_model=AgentResponse)
-    async def agent_endpoint(request: AgentRequest) -> dict[str, Any]:
+    async def agent_endpoint(payload: AgentRequest, request: Request) -> dict[str, Any]:
         # ── Trusted identity context (P0-05) ───────────────────────
-        # Populated from auth middleware in production; uses development
-        # defaults in dev mode. The model never sees or controls these.
-        from fxfill_banking_agent.security.context import TrustedRequestContext
+        # Populated by AuthMiddleware. NEVER hardcoded, NEVER from LLM.
+        from fxfill_banking_agent.auth_middleware import get_trusted_context
 
-        trusted = TrustedRequestContext(
-            subject_id="default",
-            tenant_id="default",
-            source="development",
-            request_id=request.session_id or "",
-        )
+        trusted = get_trusted_context(request)
+
+        # Fail closed: anonymous or invalid identity
+        if trusted.subject_id in ("anonymous", ""):
+            raise HTTPException(
+                status_code=401,
+                detail="Authentication required — provide valid credentials",
+            )
 
         op = Operation(
             kind=OperationKind.READ,
             name="agent_request",
-            target=f"session:{request.session_id or 'new'}",
-            details={"message": request.message, "subject_id": trusted.subject_id},
+            target=f"session:{payload.session_id or 'new'}",
+            details={"message": payload.message, "subject_id": trusted.subject_id},
         )
         decision = await gateway.authorize(op)
 
@@ -241,14 +242,18 @@ def create_app(
             raise HTTPException(status_code=401, detail="Request requires human approval")
 
         try:
-            result = await runtime.run(request.message, run_id=request.session_id)
+            result = await runtime.run(
+                payload.message,
+                run_id=payload.session_id,
+                trusted_context=trusted,
+            )
         except Exception as exc:
             raise HTTPException(status_code=500, detail=str(exc)) from exc
 
         # Check for LangGraph interrupt — approval required
         interrupt_info = result.get("__interrupt__")
         if interrupt_info and isinstance(interrupt_info, dict):
-            session_id = request.session_id or interrupt_info.get("session_id", "unknown")
+            session_id = payload.session_id or interrupt_info.get("session_id", "unknown")
             now = datetime.now(timezone.utc).isoformat()
             tool_name = str(interrupt_info.get("tool_name", "unknown"))
             tool_args = interrupt_info.get("tool_args", {})
@@ -398,8 +403,8 @@ def create_app(
         return await health()
 
     @v1.post("/agent", response_model=AgentResponse)
-    async def v1_agent(request: AgentRequest) -> dict[str, Any]:
-        return await agent_endpoint(request)
+    async def v1_agent(payload: AgentRequest, request: Request) -> dict[str, Any]:
+        return await agent_endpoint(payload, request)
 
     @v1.post("/agent/approve", response_model=ApprovalResponse)
     async def v1_approve(request: ApprovalRequest) -> dict[str, Any]:
