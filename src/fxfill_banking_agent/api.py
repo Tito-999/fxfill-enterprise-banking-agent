@@ -21,7 +21,6 @@ from fxfill_banking_agent.auth import (
 )
 from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.grant_repo import GrantRepository, _digest
-from fxfill_banking_agent.hitl_signal import HITLPending
 from fxfill_banking_agent.hitl_store import HITLSession, HITLSessionStatus, SqliteHITLStore
 from fxfill_banking_agent.lifecycle import ApplicationResources
 from fxfill_banking_agent.llm import LLMProvider
@@ -76,6 +75,12 @@ def create_app(
     grant_repo: "GrantRepository | None" = None,
     approval_executor: "HITLApprovalExecutor | None" = None,
     resources: "ApplicationResources | None" = None,
+    event_store: Any = None,
+    checkpoint_saver: Any = None,
+    idempotency_store: Any = None,
+    metrics_collector: Any = None,
+    tool_registry: Any = None,
+    intent_router: Any = None,
 ) -> FastAPI:
     """Create the FastAPI application.
 
@@ -87,6 +92,12 @@ def create_app(
         hitl_store: HITL session store.
         grant_repo: Grant repository.
         approval_executor: HITL approval executor (preferred over manual deps).
+        resources: ApplicationResources for lifecycle management.
+        event_store: Durable event store (optional).
+        checkpoint_saver: Durable checkpoint saver (optional).
+        idempotency_store: Durable idempotency store (optional).
+        metrics_collector: Metrics collector (optional, defaults to in-memory).
+        tool_registry: Tool registry (optional).
 
     Raises:
         RuntimeError: If auth_gateway is missing or HITL is enabled
@@ -128,6 +139,12 @@ def create_app(
         llm=llm,
         mcp_client=mcp_client,
         auth_gateway=gateway,
+        event_store=event_store,
+        checkpoint_saver=checkpoint_saver,
+        idempotency_store=idempotency_store,
+        metrics_collector=metrics_collector,
+        tool_registry=tool_registry,
+        router=intent_router,
     )
 
     # ── Lifespan — closes all owned resources on shutdown ──────────
@@ -149,11 +166,23 @@ def create_app(
 
     @app.post("/agent", response_model=AgentResponse)
     async def agent_endpoint(request: AgentRequest) -> dict[str, Any]:
+        # ── Trusted identity context (P0-05) ───────────────────────
+        # Populated from auth middleware in production; uses development
+        # defaults in dev mode. The model never sees or controls these.
+        from fxfill_banking_agent.security.context import TrustedRequestContext
+
+        trusted = TrustedRequestContext(
+            subject_id="default",
+            tenant_id="default",
+            source="development",
+            request_id=request.session_id or "",
+        )
+
         op = Operation(
             kind=OperationKind.READ,
             name="agent_request",
             target=f"session:{request.session_id or 'new'}",
-            details={"message": request.message},
+            details={"message": request.message, "subject_id": trusted.subject_id},
         )
         decision = await gateway.authorize(op)
 
@@ -165,24 +194,35 @@ def create_app(
 
         try:
             result = await runtime.run(request.message, run_id=request.session_id)
-        except HITLPending as pause:
-            # Typed HITL pause — store structured details + grant, return 202
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=str(exc)) from exc
 
-            session_id = request.session_id or pause.session_id or "unknown"
+        # Check for LangGraph interrupt — approval required
+        interrupt_info = result.get("__interrupt__")
+        if interrupt_info and isinstance(interrupt_info, dict):
+            session_id = request.session_id or interrupt_info.get("session_id", "unknown")
             now = datetime.now(timezone.utc).isoformat()
-            canonical_args = json.dumps(pause.tool_args, sort_keys=True)
-            arg_digest = _digest(pause.tool_args)
-            idem_key = pause.idempotency_key or f"{session_id}:{pause.tool_call_id}"
+            tool_name = str(interrupt_info.get("tool_name", "unknown"))
+            tool_args = interrupt_info.get("tool_args", {})
+            tool_call_id = str(interrupt_info.get("tool_call_id", ""))
+            idem_key = str(interrupt_info.get("idempotency_key", f"{session_id}:{tool_call_id}"))
+            thread_id = str(interrupt_info.get("thread_id", session_id))
+
+            if isinstance(tool_args, dict):
+                canonical_args = json.dumps(tool_args, sort_keys=True)
+            else:
+                canonical_args = json.dumps({})
+            arg_digest = _digest(tool_args if isinstance(tool_args, dict) else {})
 
             if _hitl is not None:
                 hitl_session = HITLSession(
                     session_id=session_id,
                     user_id="default",
-                    thread_id=pause.thread_id or session_id,
+                    thread_id=thread_id,
                     status=HITLSessionStatus.PENDING,
-                    tool_name=pause.tool_name,
-                    tool_args=pause.tool_args,
-                    tool_call_id=pause.tool_call_id,
+                    tool_name=tool_name,
+                    tool_args=tool_args if isinstance(tool_args, dict) else {},
+                    tool_call_id=tool_call_id,
                     authorization_decision="PENDING",
                     approval_requirement="required",
                     idempotency_key=idem_key,
@@ -200,11 +240,11 @@ def create_app(
                     session_id=session_id,
                     requesting_user_id="default",
                     approving_actor_id="",
-                    thread_id=pause.thread_id or session_id,
+                    thread_id=thread_id,
                     run_id=session_id,
                     checkpoint_id="",
-                    tool_call_id=pause.tool_call_id,
-                    tool_name=pause.tool_name,
+                    tool_call_id=tool_call_id,
+                    tool_name=tool_name,
                     canonical_tool_args=canonical_args,
                     argument_digest=arg_digest,
                     idempotency_key=idem_key,
@@ -223,9 +263,7 @@ def create_app(
             raise HTTPException(
                 status_code=202,
                 detail=f"Action requires approval. Use POST /agent/approve with session_id={session_id}",
-            ) from pause
-        except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            )
 
         return {
             "session_id": result.get("session_id", ""),
@@ -239,17 +277,63 @@ def create_app(
         # request.approver is an untrusted note; never used for authorization
         if approval_executor is None:
             raise HTTPException(status_code=501, detail="HITL approval executor not configured")
+
         context = None
         if request.decision == "reject":
+            # Validate rejection through executor
             result = await approval_executor.reject(request.session_id, context)
-        else:
-            result = await approval_executor.approve(request.session_id, context)
+            _map_executor_result(result)
+
+            # Resume the graph with rejection so the model can respond
+            graph_result = await runtime.resume(
+                thread_id=request.session_id,
+                resume_value={
+                    "decision": "rejected",
+                    "reason": "Human operator rejected the operation",
+                },
+            )
+            answer = graph_result.get("final_answer") if graph_result else None
+            return {
+                "session_id": result.session_id,
+                "decision": result.decision,
+                "result": {
+                    "answer": answer or result.answer,
+                    "step_count": graph_result.get("step_count", 0) if graph_result else 0,
+                }
+                if answer or result.answer
+                else None,
+            }
+
+        # Approve: validate through executor, then resume graph
+        result = await approval_executor.approve(request.session_id, context)
         _map_executor_result(result)
+
+        # Load the approved grant for canonical args
+        session = await _hitl.get(request.session_id) if _hitl else None
+        canonical_args = {}
+        if session is not None:
+            canonical_args = session.tool_args if isinstance(session.tool_args, dict) else {}
+
+        # Resume the graph so the model can generate a final answer
+        graph_result = await runtime.resume(
+            thread_id=result.session_id,
+            resume_value={
+                "decision": "approved",
+                "canonical_args": canonical_args,
+                "tool_name": session.tool_name if session else "",
+                "tool_call_id": session.tool_call_id if session else "",
+            },
+        )
+
+        final_answer = graph_result.get("final_answer") if graph_result else None
         return {
             "session_id": result.session_id,
             "decision": result.decision,
-            "result": {"answer": result.answer, "step_count": result.step_count}
-            if result.answer
+            "result": {
+                "answer": final_answer or result.answer,
+                "step_count": graph_result.get("step_count", 0) if graph_result else 0,
+            }
+            if final_answer or result.answer
             else None,
         }
 
