@@ -3,9 +3,9 @@
 **Last updated:** 2026-06-25
 **Branch:** `main`
 **Enterprise core-upgrade merge:** `5a74582` (`PR #1`)
-**Portfolio release target:** `v0.2.0`
-**Release candidate commit:** `ad340f02d859a10319f2d59db557feca615cce65`
-**Release status:** Release candidate verified; annotated tag and GitHub Release pending
+**Portfolio release:** `v0.2.0`
+**Release commit:** `397d02b8c8fb6597e79d6ddfc8345bbc5ed6e029`
+**Release status:** Published as the latest GitHub Release
 **Current maturity:** Enterprise-oriented reference implementation / production-like prototype
 **Production readiness:** Not approved for real customers, real funds, or sensitive banking data
 
@@ -85,7 +85,7 @@ The upstream `tau2-bench` repository is pinned read-only, but the official `bank
 
 PR #1 was merged into `main` at commit `5a74582` after the pull-request CI, security, migration and container-build gates completed successfully.
 
-## Portfolio Release Candidate Evidence
+## Published Portfolio Release Evidence
 
 - Package metadata and runtime version are aligned to `0.2.0`.
 - Final verification was completed against commit `ad340f02d859a10319f2d59db557feca615cce65`.
@@ -123,20 +123,17 @@ This evidence establishes completion as a portfolio/reference release candidate.
 6. Wire observability, tamper-evident audit and operational runbooks.
 7. Remove strict-typing exemptions and raise coverage thresholds.
 8. Complete benchmark and live-provider regression evidence.
-9. Publish the verified `v0.2.0` portfolio release.
 
 ## Definition of Finished
 
-### Portfolio release
+### Portfolio release — Complete
 
-The project may be considered complete as a portfolio release when:
-
-- all CI jobs are green;
-- README and status claims match recorded evidence;
-- Docker quick start works from a clean clone;
-- security and identity smoke tests are documented;
-- scaffolding and limitations are explicitly labelled;
-- a tagged release and demonstration are published.
+- [x] All required CI jobs are green.
+- [x] README and status claims match recorded evidence.
+- [x] Docker quick start works from a clean clone.
+- [x] Security and identity smoke tests are documented.
+- [x] Scaffolding and limitations are explicitly labelled.
+- [x] The annotated `v0.2.0` tag and GitHub Release are published.
 
 ### Production-like prototype
 
