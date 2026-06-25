@@ -196,11 +196,17 @@ def create_app(
 
     v1 = APIRouter(prefix="/v1")
 
-    # ── Deep health check ──────────────────────────────────────
-    @app.get("/health", response_model=HealthResponse)
-    async def health() -> dict[str, str]:
-        checks: dict[str, str] = {"status": "ok", "version": "0.1.0"}
-        # Check MCP connectivity
+    # ── Stage 3.4: Separate health probes ────────────────────────
+    @app.get("/live")
+    async def liveness() -> dict[str, str]:
+        """Kubernetes liveness: process + event loop only."""
+        return {"status": "alive"}
+
+    @app.get("/ready")
+    async def readiness() -> dict[str, Any]:
+        """Kubernetes readiness: all dependencies must be healthy."""
+        checks: dict[str, str] = {}
+        # Check MCP
         try:
             if hasattr(mcp_client, "tools"):
                 checks["mcp"] = "ok"
@@ -208,9 +214,33 @@ def create_app(
                 checks["mcp"] = "degraded"
         except Exception:
             checks["mcp"] = "error"
-        # Check LLM provider (non-destructive)
+        # Check LLM provider configuration
         checks["provider"] = "configured" if llm else "missing"
-        return checks
+        # Determine overall status
+        failed = [k for k, v in checks.items() if v in ("error", "missing")]
+        if failed:
+            from fastapi.responses import JSONResponse
+
+            return JSONResponse(
+                status_code=503,
+                content={"status": "not_ready", "checks": checks, "failed": failed},
+            )  # type: ignore[return-value]
+        return {"status": "ready", "checks": checks}
+
+    @app.get("/health", response_model=HealthResponse)
+    async def health() -> dict[str, str]:
+        """Legacy health: simple liveness."""
+        return {"status": "ok", "version": "0.2.0"}
+
+    @app.get("/health/deep")
+    async def deep_health() -> dict[str, Any]:
+        """Deep health: operational diagnostics (never returns secrets)."""
+        return {
+            "status": "ok",
+            "version": "0.2.0",
+            "mcp_tools": len(getattr(mcp_client, "tools", [])),
+            "provider_configured": llm is not None,
+        }
 
     @app.post("/agent", response_model=AgentResponse)
     async def agent_endpoint(payload: AgentRequest, request: Request) -> dict[str, Any]:
@@ -241,14 +271,40 @@ def create_app(
         if decision.decision == ApprovalDecision.PENDING:
             raise HTTPException(status_code=401, detail="Request requires human approval")
 
+        # ── Stage 3.5: Request validation ────────────────────────
+        if len(payload.message) > 10_000:
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "error_code": "PROMPT_TOO_LONG",
+                    "message": "Request message exceeds maximum length.",
+                },
+            )
+
         try:
             result = await runtime.run(
                 payload.message,
                 run_id=payload.session_id,
                 trusted_context=trusted,
             )
+        except RuntimeError as exc:
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "AGENT_EXECUTION_FAILED",
+                    "message": "The request could not be completed.",
+                    "correlation_id": trusted.correlation_id,
+                },
+            ) from exc
         except Exception as exc:
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+            raise HTTPException(
+                status_code=500,
+                detail={
+                    "error_code": "INTERNAL_ERROR",
+                    "message": "An unexpected error occurred.",
+                    "correlation_id": trusted.correlation_id,
+                },
+            ) from exc
 
         # Check for LangGraph interrupt — approval required
         interrupt_info = result.get("__interrupt__")
@@ -270,7 +326,7 @@ def create_app(
             if _hitl is not None:
                 hitl_session = HITLSession(
                     session_id=session_id,
-                    user_id="default",
+                    user_id=trusted.subject_id,
                     thread_id=thread_id,
                     status=HITLSessionStatus.PENDING,
                     tool_name=tool_name,
@@ -291,7 +347,7 @@ def create_app(
 
                 grant = GrantRecord(
                     session_id=session_id,
-                    requesting_user_id="default",
+                    requesting_user_id=trusted.subject_id,
                     approving_actor_id="",
                     thread_id=thread_id,
                     run_id=session_id,

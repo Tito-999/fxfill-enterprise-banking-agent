@@ -22,21 +22,27 @@ class TrustedRequestContext:
     or controls these values.
 
     Attributes:
-        subject_id: Authenticated user/principal identifier.
-        tenant_id: Tenant/organization identifier for multi-tenancy.
+        subject_id: Authenticated user/principal identifier. Must never be empty.
+        tenant_id: Tenant/organization identifier. Must never be empty.
         roles: Set of role strings for RBAC.
+        scopes: OAuth scopes for fine-grained access control.
         account_ids: Accounts this user is authorized to access.
         auth_session_id: Session identifier from the auth provider.
+        token_id: JWT jti claim for token binding.
+        issuer: OIDC issuer that verified this token.
         request_id: Unique request identifier for tracing.
         correlation_id: Cross-service correlation identifier.
-        source: How the identity was established (e.g. "oidc", "header", "test").
+        source: How the identity was established ("oidc", "header", "test").
     """
 
     subject_id: str
     tenant_id: str = "default"
     roles: frozenset[str] = frozenset()
+    scopes: frozenset[str] = frozenset()
     account_ids: frozenset[str] = frozenset()
     auth_session_id: str = ""
+    token_id: str = ""
+    issuer: str = ""
     request_id: str = ""
     correlation_id: str = ""
     source: str = "unknown"

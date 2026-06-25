@@ -130,11 +130,59 @@ class PersistenceConfig:
 
 
 @dataclass(frozen=True)
+class EnvironmentConfig:
+    """Environment-mode configuration.
+
+    Controls production safety guards. All fields must be set explicitly
+    in production — no defaults are safe.
+    """
+
+    env: Environment = Environment.DEVELOPMENT
+    allow_dev_headers: bool = True
+    allow_cors_wildcard: bool = True
+    oidc_issuer: str = ""
+    oidc_audience: str = ""
+    oidc_jwks_url: str = ""
+    oidc_jwks_cache_ttl_seconds: int = 300
+    database_url: str = ""
+    redis_url: str = ""
+    cors_allowed_origins: str = ""
+    request_timeout_seconds: int = 30
+    provider_timeout_seconds: int = 120
+    max_request_body_bytes: int = 100_000
+    max_prompt_chars: int = 20_000
+
+    @property
+    def is_production(self) -> bool:
+        return self.env == Environment.PRODUCTION
+
+    def validate_production(self) -> list[str]:
+        """Return a list of fatal configuration errors for production mode."""
+        errors: list[str] = []
+        if not self.oidc_issuer:
+            errors.append("OIDC_ISSUER is required in production")
+        if not self.oidc_audience:
+            errors.append("OIDC_AUDIENCE is required in production")
+        if not self.database_url:
+            errors.append("DATABASE_URL is required in production")
+        if not self.redis_url:
+            errors.append("REDIS_URL is required in production")
+        if self.allow_dev_headers:
+            errors.append("Development identity headers must be disabled in production")
+        if self.allow_cors_wildcard:
+            errors.append("CORS wildcard must be disabled in production")
+        if "sqlite" in self.database_url.lower():
+            errors.append("SQLite is not allowed in production")
+        return errors
+
+
+@dataclass(frozen=True)
 class AgentConfig:
     """Top-level configuration for the banking agent.
 
     Attributes:
         environment: Deployment environment.
+        environ: Environment-mode configuration (prod safety guards).
         log_level: Minimum log level.
         llm: LLM configuration.
         database: Database configuration.
@@ -146,6 +194,7 @@ class AgentConfig:
     """
 
     environment: Environment = Environment.DEVELOPMENT
+    environ: EnvironmentConfig = field(default_factory=EnvironmentConfig)
     log_level: LogLevel = LogLevel.INFO
     llm: LLMConfig = field(
         default_factory=lambda: LLMConfig(provider="anthropic", model="claude-sonnet-4-6")
