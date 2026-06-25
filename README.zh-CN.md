@@ -2,142 +2,117 @@
 
 [English](README.md) | [简体中文](README.zh-CN.md)
 
-一个面向企业级架构演示、具备可审计能力的银行 AI Agent。项目基于 LangGraph、FastAPI、MCP 风格工具边界、DeepSeek 与 SQLite，实现了持久化 Human-in-the-Loop（HITL）审批、精确操作授权、幂等执行和故障恢复。
+一个基于 LangGraph、FastAPI、DeepSeek、MCP 风格工具边界、确定性授权、Human-in-the-Loop（HITL）审批和持久化状态构建的企业级导向银行 AI Agent 参考实现。
 
+> **范围与安全声明：** 本仓库是作品集与参考实现，不处理真实资金、真实客户或真实个人信息。未经独立的安全、合规、运维和集成审查，不得用于真实银行生产环境。
 
-> 本仓库是参考实现与作品集项目，全部银行账户、交易、收款人和转账数据均为合成数据。未经完整的安全、合规和运维审查，不得用于处理真实资金、真实客户或敏感个人信息。
+## 当前成熟度
 
-## 项目简介
+| 目标 | 当前判断 |
+|---|---|
+| 求职作品集 / 技术演示 | 较强，主体已完成 |
+| 企业内部 production-like 原型 | 部分完成 |
+| 真实银行生产系统 | 尚未达到 |
 
-FxFill Enterprise Banking Agent 展示了如何构建一个“推理由模型驱动，但权限、执行、副作用、持久化和恢复由确定性代码控制”的银行智能体。
+项目展示了企业架构模式，但严格区分 **已实现、已接线、已测试、已进行真实调用验证、可生产使用** 这几个不同层级。
 
-系统能够回答账户问题、查询合成交易记录、创建转账草稿，并将敏感操作交给明确的人类审批流程。其核心设计原则包括：
+## 最新验证证据
 
-- 默认拒绝的授权策略；
-- 绑定到具体操作的单次审批凭证；
-- 幂等且可恢复的副作用执行；
-- 跨进程重启的持久化状态；
-- LLM 推理与银行工具执行严格分离；
-- 可查询、可审计的事件记录。
+2026-06-25 本地验证结果：
 
-仓库还包含面向公开 `tau2-bench` 的 `banking_knowledge` 领域评测脚手架。上游 benchmark 被固定到指定提交，并始终作为只读依赖使用。
+| 检查项 | 结果 |
+|---|---|
+| 自动化测试 | `384 passed, 1 skipped` |
+| 行覆盖率 | `src/` 总体 `68%` |
+| Ruff lint | 通过 |
+| Ruff format check | 通过 |
+| MyPy | 配置范围内通过，共检查 `87` 个源文件 |
+| Docker 镜像构建 | 通过 |
+| Docker Compose | `agent`、`postgres`、`redis` 均达到 `healthy` |
+| 健康检查 | `GET /health` 返回 `200` |
+| 真实 Provider 冒烟链路 | 手工测试中 DeepSeek 返回 `200` |
+| 可信身份测试 | `user-alice` 可以读取自己的 `ACC-1001` |
+| 跨账户隔离 | `user-alice` 无法读取 `ACC-2001` |
+| Prompt 身份伪造 | Prompt 声称自己是 `user-bob` 不能绕过可信身份 |
+| Secret 安全 | `.env` 被忽略，本地 Git 历史常见密钥模式扫描未发现匹配 |
 
-## 核心能力
+唯一跳过的测试是需要真实 Provider 的 opt-in 测试。本地验证不能替代 GitHub Actions、发布验收、渗透测试或生产认证。
 
-- **有界 LangGraph 推理循环**：通过硬性步数上限约束推理和工具调用。
-- **FastAPI 服务**：提供类型化的 `/health`、`/agent` 和 `/agent/approve` 接口。
-- **MCP 风格工具隔离**：模型不能直接访问银行数据仓库，只能通过工具边界调用能力。
-- **确定性授权**：敏感操作的安全性不依赖 Prompt 指令。
-- **持久化 HITL 审批**：审批会话、授权凭证、状态迁移、过期和恢复信息均写入 SQLite。
-- **精确操作授权**：审批绑定 session、用户、thread、tool call、工具名、规范化参数、参数摘要和幂等键。
-- **单次授权与幂等执行**：重复请求或重复点击审批不会静默重复执行已确认的副作用。
-- **故障与不确定结果恢复**：显式处理 failed、unknown、resumed、expired 和 reconciliation-required 状态。
-- **结构化可观测性**：持久化事件、关联信息、模型延迟、Token 用量和结构化日志。
-- **Benchmark 完整性约束**：固定上游版本、只读集成、官方评测与日常开发隔离。
-- **质量门禁**：单元测试、集成测试、Ruff、MyPy 和阶段验收报告。
+## 已验证能力
+
+- **有界 LangGraph 运行时**：通过最大步数限制推理和工具循环。
+- **FastAPI API**：提供类型化请求与响应。
+- **DeepSeek Provider 集成**：使用 OpenAI 兼容请求与响应路径。
+- **MCP 风格银行工具边界**：模型不能直接访问银行 Repository。
+- **类型化 Tool Registry 与参数校验**：管理工具名、参数、副作用、风险和权限。
+- **确定性授权**：Prompt 文本不被视为权限。
+- **可信身份注入**：身份敏感的 direct route 工具由服务端注入用户身份。
+- **跨账户访问保护**：合成账户数据具有所有权校验。
+- **SQLite 持久化**：用于 checkpoint、HITL、grant、idempotency 和 event。
+- **HITL interrupt/resume 路径**：敏感操作可暂停并恢复。
+- **幂等控制**：用于防止重复副作用。
+- **结构化日志、指标和关联 ID 组件**。
+- **Docker 与 Docker Compose**：包含健康检查。
+- **Kubernetes 与 CI 脚手架**：用于后续生产化。
+- **固定且只读的上游 benchmark 依赖**。
 
 ## 系统架构
 
 ```mermaid
 flowchart LR
     Client[客户端 / 操作员] --> API[FastAPI API]
-    API --> Runtime[LangGraph Agent Runtime]
-    Runtime --> LLM[DeepSeek Provider]
-    Runtime --> Auth[Authorization Gateway]
-    Runtime --> MCP[MCP Client Adapter]
-    MCP --> Tools[合成银行工具服务]
+    API --> Identity[可信请求上下文]
+    Identity --> Auth[授权网关]
+    API --> Runtime[AgentRuntime]
+    Runtime --> Router[Intent Router]
+    Router --> Graph[LangGraph Runtime]
+    Graph --> LLM[DeepSeek Provider]
+    Graph --> Registry[Tool Registry + Validation]
+    Registry --> MCP[MCP Client Adapter]
+    MCP --> Tools[合成银行工具]
 
-    Auth -->|允许只读操作| MCP
-    Auth -->|敏感操作待审批| HITL[持久化 HITL 会话]
-    HITL --> Operator[可信审批人]
-    Operator --> Executor[Approval Executor]
-    Executor --> MCP
-
-    Runtime --> Checkpoints[(SQLite Checkpoints)]
-    HITL --> HITLStore[(SQLite HITL Store)]
-    Executor --> Grants[(Approval Grants)]
-    Executor --> Idempotency[(Idempotency Store)]
-    Executor --> Events[(Event Store)]
+    Graph --> Checkpoints[(SQLite Checkpoints)]
+    Graph --> HITL[HITL Interrupt / Resume]
+    HITL --> Grants[(Approval Grants)]
+    HITL --> Idempotency[(Idempotency Store)]
+    Runtime --> Events[(Event Store / Metrics)]
 ```
 
 ### 信任边界
 
-1. **LLM 输出不可信**：模型生成的工具名和参数必须经过确定性校验与授权。
-2. **Prompt 不是授权机制**：所有副作用权限均由代码强制执行。
-3. **MCP 边界负责工具执行**：模型不能直接操作银行 Repository。
-4. **审批身份必须可信**：HTTP 请求体中的 `approver` 字段只被视为不可信输入。
-5. **上游 benchmark 只读**：运行时代码不得读取参考答案、奖励、评估器内部逻辑或 gold state。
+1. **LLM 输出不可信**：工具名和参数必须经过确定性校验。
+2. **Prompt 不是授权机制**：身份、账户所有权、角色、tenant 和审批权限必须来自可信上下文。
+3. **模型不能直接修改银行状态**：所有操作必须通过工具边界。
+4. **敏感操作必须经过明确策略检查与审批语义。**
+5. **上游 benchmark 固定且只读**：不得读取 gold state、答案、奖励或评估器内部逻辑。
 
-## 银行工具
+## 合成银行工具
 
 | 工具 | 类型 | 功能 |
 |---|---|---|
-| `get_account_summary` | 只读 | 查询账户概要 |
-| `get_balance` | 只读 | 查询账户余额 |
-| `list_transactions` | 只读 | 查询近期交易记录 |
-| `find_beneficiary` | 只读 | 按 ID 查询收款人 |
-| `get_transfer_status` | 只读 | 查询转账草稿或转账状态 |
-| `create_transfer_draft` | 副作用 | 创建但不提交转账草稿 |
-| `submit_transfer` | 副作用 | 提交已有转账草稿 |
-| `cancel_transfer` | 副作用 | 取消待处理转账草稿 |
+| `get_account_summary` | 只读 | 查询合成账户概要 |
+| `get_balance` | 只读 | 查询合成账户余额 |
+| `list_transactions` | 只读 | 查询近期合成交易 |
+| `find_beneficiary` | 只读 | 查询合成收款人 |
+| `get_transfer_status` | 只读 | 查询转账草稿状态 |
+| `create_transfer_draft` | 副作用 | 创建转账草稿 |
+| `submit_transfer` | 副作用 | 提交转账草稿 |
+| `cancel_transfer` | 副作用 | 取消待处理草稿 |
 | `report_suspicious_transaction` | 副作用 | 创建合成可疑交易报告 |
 
-项目内置的账户、收款人、交易和转账数据均为开发用合成数据。
+仓库内所有账户、收款人、交易和转账数据均为合成数据。
 
-## 技术栈
+## 快速开始
 
-| 模块 | 技术 |
-|---|---|
-| 编程语言 | Python 3.12 或 3.13 |
-| Agent 编排 | LangGraph、LangChain Core |
-| Web API | FastAPI、Uvicorn、Pydantic |
-| LLM Provider | 通过 Anthropic 兼容接口调用 DeepSeek |
-| 工具集成 | MCP Client Adapter、进程内合成银行工具服务 |
-| 持久化 | SQLite、`aiosqlite` |
-| 日志 | `structlog` |
-| 测试 | Pytest、Pytest Asyncio |
-| 代码质量 | Ruff、MyPy |
-| 构建与依赖管理 | Hatchling、`uv` |
-
-## 仓库结构
-
-```text
-.
-├── src/fxfill_banking_agent/
-│   ├── agent.py                 # Agent 运行时
-│   ├── graph.py                 # LangGraph 状态图
-│   ├── api.py                   # FastAPI 应用工厂
-│   ├── bootstrap.py             # 完整依赖组装入口
-│   ├── auth.py                  # 授权策略与网关
-│   ├── approval_executor.py     # 持久化审批执行器
-│   ├── actor_resolver.py        # 可信审批人身份抽象
-│   ├── banking/                 # 合成银行数据仓库与工具
-│   ├── mcp/                     # MCP 模型与客户端适配器
-│   ├── providers/               # LLM Provider 实现
-│   ├── db.py                    # Schema 初始化与迁移
-│   ├── checkpoint_store.py      # Agent Checkpoint
-│   ├── hitl_store.py            # 人工审批会话
-│   ├── grant_repo.py            # 精确操作审批凭证
-│   ├── idempotency_store.py     # 防止重复执行
-│   └── persistence.py           # 持久化事件存储
-├── tests/                       # 单元测试与集成测试
-├── scripts/run_benchmark.py     # 手动 benchmark 脚手架
-├── docs/                        # 架构决策记录
-├── reports/phases/              # 阶段验收证据
-├── SPEC.md                      # 范围与信任边界
-├── ROADMAP.md                   # 阶段规划与验收标准
-├── UPSTREAM.lock                # 固定的 tau2-bench 上游版本
-└── pyproject.toml
-```
-
-## 环境要求
+### 环境要求
 
 - Python `>=3.12,<3.14`
-- 推荐使用 [`uv`](https://docs.astral.sh/uv/) 管理依赖
-- 运行真实 Provider 路径需要 DeepSeek API Token
-- 克隆仓库和校验上游 benchmark 时需要 Git
+- `uv`
+- Git
+- 容器路径需要 Docker Desktop 或 Docker Engine
+- 真实 Provider 路径需要 DeepSeek API Token
 
-## 安装
+### 安装
 
 ```bash
 git clone https://github.com/Tito-999/fxfill-enterprise-banking-agent.git
@@ -145,202 +120,183 @@ cd fxfill-enterprise-banking-agent
 uv sync --group dev
 ```
 
-配置 Provider Token。
+复制环境变量示例，并只在本地填写自己的 Token：
 
-### Bash / Zsh
+```bash
+cp .env.example .env
+```
+
+不得提交 `.env` 或真实 API Token。
+
+### 本地启动
 
 ```bash
 export DEEPSEEK_API_TOKEN="your-token"
+export FXFILL_DATA_DIR="./data"
+export PERSISTENCE_DB_PATH="./data/agent.db"
+
+uv run python -m fxfill_banking_agent.server
 ```
 
-### PowerShell
+PowerShell：
 
 ```powershell
 $env:DEEPSEEK_API_TOKEN = "your-token"
+$env:FXFILL_DATA_DIR = "./data"
+$env:PERSISTENCE_DB_PATH = "./data/agent.db"
+
+uv run python -m fxfill_banking_agent.server
 ```
 
-Token 必须保存在环境变量或本地 Secret Manager 中，不得提交到仓库。
-
-## 测试与代码检查
+### Docker Compose 启动
 
 ```bash
-uv run pytest
-uv run ruff check .
-uv run ruff format --check .
-uv run mypy src
-```
-
-## 启动 API
-
-仓库提供异步 `bootstrap_app()` 依赖组装入口。下面的最小启动器会让应用创建与 Uvicorn 运行在同一个事件循环中：
-
-```python
-# serve.py
-import asyncio
-
-import uvicorn
-
-from fxfill_banking_agent.bootstrap import bootstrap_app
-
-
-async def main() -> None:
-    app = await bootstrap_app(
-        db_path="./data/agent.db",
-        production_mode=False,
-    )
-    server = uvicorn.Server(
-        uvicorn.Config(app, host="127.0.0.1", port=8000, log_level="info")
-    )
-    await server.serve()
-
-
-if __name__ == "__main__":
-    asyncio.run(main())
-```
-
-```bash
-uv run python serve.py
-```
-
-启动后可访问：
-
-- OpenAPI 文档：`http://127.0.0.1:8000/docs`
-- 健康检查：`http://127.0.0.1:8000/health`
-
-### 健康检查
-
-```bash
+docker compose up -d --build
+docker compose ps
 curl http://127.0.0.1:8000/health
 ```
 
-```json
-{
-  "status": "ok",
-  "version": "0.1.0"
-}
+Windows 本地代理环境可使用：
+
+```powershell
+curl.exe --noproxy "*" http://127.0.0.1:8000/health
 ```
 
 ### 请求 Agent
 
+开发模式通过 Header 提供身份。以下合成账户属于 `user-alice`：
+
 ```bash
-curl -X POST http://127.0.0.1:8000/agent \
+curl --noproxy "*" \
+  -X POST \
   -H "Content-Type: application/json" \
+  -H "X-User-Id: user-alice" \
+  -H "X-Tenant-Id: default" \
   -d '{
-    "message": "Show the recent transactions for my account.",
+    "message": "What is the balance of account ACC-1001?",
     "session_id": "demo-session"
-  }'
+  }' \
+  http://127.0.0.1:8000/agent
 ```
 
-只读请求可以直接完成。涉及副作用的工具调用会被暂停并持久化，等待人工审批。真实部署必须注入经过身份认证的 `ApprovalActorResolver`；开发模式 Resolver 不能替代生产身份认证系统。
+预期合成结果：账户 `ACC-1001`，余额 `15000.0 USD`。
 
-## 配置说明
-
-主要配置模型位于：
-
-- `src/fxfill_banking_agent/config.py`
-- `src/fxfill_banking_agent/providers/base.py`
-
-| 配置 | 默认值或来源 | 说明 |
-|---|---|---|
-| `DEEPSEEK_API_TOKEN` | 环境变量 | `bootstrap_app()` 所需 Provider 凭证 |
-| Provider Base URL | `https://api.deepseek.com/anthropic/v1` | DeepSeek Anthropic 兼容接口 |
-| Provider Model | `deepseek-v4-pro` | `ProviderConfig` 中的默认模型标识 |
-| Agent 最大步数 | `50` | 推理与工具循环硬上限 |
-| HITL 过期时间 | `30` 分钟 | 待审批会话默认有效期 |
-| 幂等记录保留时间 | `90` 天 | 默认记录保留配置 |
-| SQLite 路径 | `db_path` 参数 | HITL、Grant、Event、Idempotency 的共享持久化存储 |
-
-当 `production_mode=True` 时，如果缺少持久化数据库或非开发环境的可信审批人 Resolver，应用会主动拒绝启动。
-
-## API 接口
-
-| 方法 | 接口 | 功能 |
-|---|---|---|
-| `GET` | `/health` | 服务健康状态与版本 |
-| `POST` | `/agent` | 新建或继续 Agent 会话 |
-| `POST` | `/agent/approve` | 审批或拒绝已持久化的敏感操作 |
-| `GET` | `/docs` | FastAPI 自动生成的 Swagger UI |
-
-## HITL 执行模型
-
-敏感操作使用持久化状态机，而不是内存中的确认标志：
-
-1. Agent 提出工具调用。
-2. 确定性授权模块判断操作类型。
-3. 系统写入待审批 HITL 会话和匹配的 Approval Grant。
-4. 可信操作员审批或拒绝该精确操作。
-5. Approval Executor 原子化地领取 Grant。
-6. 工具分发前预留幂等状态。
-7. 同一业务幂等键对应的 MCP 工具最多执行一次。
-8. 成功、失败、未知结果或需要人工对账的状态被持久化记录。
-
-因此，对某一次操作的人工批准不会演变成后续所有模型操作的通用授权。
-
-## Benchmark 集成
-
-本项目面向公开 `tau2-bench` 的 `banking_knowledge` 领域。
-
-- `UPSTREAM.lock` 固定外部仓库及其 commit。
-- 上游代码默认位于 `../tau2-bench-upstream`。
-- 上游仓库始终按只读依赖处理。
-- 运行时代码不得读取参考操作、评估器内部逻辑、奖励或 gold state。
-- 官方 benchmark 评测必须手动执行，并与日常开发隔离。
-- `scripts/run_benchmark.py` 当前提供配置、预检查和结果记录脚手架，不应被描述为已经完成的端到端评测器。
+## 质量门禁
 
 ```bash
-uv run python scripts/run_benchmark.py \
-  --model deepseek-v4-pro \
-  --profile default \
-  --tasks banking_knowledge
-```
-
-内置评测配置包括：
-
-- `default`
-- `long-reasoning`
-- `fast`
-
-## 开发原则
-
-- 当授权、身份、持久化状态或工具结果不确定时，默认拒绝并停止继续执行。
-- LLM 只负责自然语言推理，不负责最终安全决策。
-- 所有副作用必须幂等，并能够跨进程重启恢复。
-- 每个敏感状态迁移都应留下可查询的审计记录。
-- 不得为了开发便利而静默降低生产安全约束。
-- Benchmark 开发不得接触评测答案、奖励逻辑和私有评估结果。
-
-## 项目状态
-
-当前仓库已经包含：
-
-- 合成银行工具；
-- 真实 Provider 适配器；
-- LangGraph Agent 运行时；
-- FastAPI 服务；
-- 持久化 HITL；
-- 精确操作授权凭证；
-- 幂等执行和故障恢复；
-- SQLite 持久化；
-- 单元测试与集成测试；
-- Benchmark 集成脚手架。
-
-该项目适合用于企业 Agent 架构展示、安全机制实验和个人作品集评估，但不是经过监管认证的银行产品、真实交易处理系统或可直接上线的生产服务。
-
-## 贡献要求
-
-所有修改都应保持以下不变量：
-
-1. 副作用操作不得绕过确定性授权。
-2. 审批必须绑定到具体操作和可信身份上下文。
-3. 持久化状态迁移必须能够抵抗重启并保持幂等。
-4. 测试不得依赖 benchmark 答案或私有 evaluator 行为。
-5. 新增 Provider 和 MCP 集成必须隐藏凭证，并在错误时显式失败。
-
-提交代码前运行：
-
-```bash
+uv sync --group dev
 uv run pytest
+uv run pytest -q --cov=src --cov-report=term-missing
 uv run ruff check .
 uv run ruff format --check .
 uv run mypy src
 ```
+
+当前本地结果：
+
+```text
+384 passed, 1 skipped
+总体行覆盖率 68%
+Ruff 通过
+Format check 通过
+配置范围内 MyPy 通过
+```
+
+## 仓库结构
+
+```text
+.
+├── src/fxfill_banking_agent/
+│   ├── agent.py
+│   ├── graph.py
+│   ├── api.py
+│   ├── server.py
+│   ├── bootstrap.py
+│   ├── auth.py
+│   ├── auth_middleware.py
+│   ├── approval_executor.py
+│   ├── checkpoint_store.py
+│   ├── hitl_store.py
+│   ├── grant_repo.py
+│   ├── idempotency_store.py
+│   ├── persistence.py
+│   ├── providers/
+│   ├── banking/
+│   ├── mcp/
+│   ├── tools/
+│   ├── routing/
+│   ├── orchestration/
+│   ├── memory/
+│   └── rag/
+├── tests/
+├── docs/
+├── k8s/
+├── .github/workflows/
+├── Dockerfile
+├── compose.yaml
+├── SPEC.md
+├── ROADMAP.md
+├── UPSTREAM.lock
+└── pyproject.toml
+```
+
+## 当前限制
+
+以下限制必须明确保留：
+
+1. **生产 OIDC/JWT 尚未实现**：生产认证路径仍是 scaffold。
+2. **开发 Header 身份不是生产认证。**
+3. **HITL 身份绑定不完整**：部分审批/会话路径仍存在默认身份值或平行执行语义。
+4. **SQLite 仍是已验证的权威运行时存储**：PostgreSQL 和 Redis 容器能启动，但尚未成为主运行时的唯一事实源和分布式协调层。
+5. **多副本正确性尚未证明**：进程内限流和本地状态使当前系统不能安全宣称支持生产横向扩展。
+6. **健康检查较浅**：尚未真实检查所有关键依赖。
+7. **CORS 和客户端错误响应仍需生产加固。**
+8. **MyPy 对多个关键模块仍配置了 `ignore_errors = true`。**
+9. **总体覆盖率为 68%**：部分企业化与运维模块仍为 0% 或低覆盖率。
+10. **尚未完成官方 `tau2-bench` `banking_knowledge` 评测。**
+11. **真实 Provider 测试默认跳过，需要显式 opt-in。**
+12. **Kubernetes、IAM、Observability、Reliability 和 AgentOps 中包含尚未完全接线或运行的 scaffold。**
+
+详细阶段状态与 blocker 请查看 [`docs/execution/STATUS.md`](docs/execution/STATUS.md)。
+
+## 生产化优先级
+
+1. 实现经过密码学验证的 OIDC/JWT。
+2. 将可信 subject 和 tenant 绑定到每一条 HITL 与审批记录。
+3. 将 graph resume 和副作用执行统一为唯一主链。
+4. 让 PostgreSQL 和 Redis 成为生产环境权威依赖。
+5. 增加迁移、连接池、事务隔离、乐观锁和分布式幂等。
+6. 加固 CORS、错误响应、超时、请求大小限制和健康检查。
+7. 移除关键模块的 MyPy 豁免。
+8. 提升关键路径覆盖率，并验证并发、崩溃、重试和未知结果。
+9. 接通 OpenTelemetry、指标、审计导出、告警、Dashboard 和 Runbook。
+10. 完成官方外部 benchmark 和真实 Provider 回归证据。
+
+## Benchmark 完整性
+
+- 上游仓库：`sierra-research/tau2-bench`
+- 固定提交：记录于 `UPSTREAM.lock`
+- 领域：`banking_knowledge`
+- 集成方式：外部固定、只读
+- 官方评测：由人工在自动编码 Agent 之外运行
+- 不允许读取 benchmark gold answer、reward、评估器内部逻辑或隐藏状态
+
+## 项目准确定位
+
+准确表述：
+
+> 一个具备确定性授权、可信身份传播、HITL 控制、持久化本地状态、容器化和较完整自动化测试的企业级导向银行 Agent 参考实现。
+
+不准确表述：
+
+> 一个已经获准处理真实银行客户和真实资金的 production-ready 银行系统。
+
+## 文档
+
+- `SPEC.md`：项目范围与信任边界
+- `ROADMAP.md`：阶段路线图
+- `AGENTS.md`：工程规则
+- `docs/execution/STATUS.md`：当前实施状态
+- `docs/execution/DECISIONS.md`：架构决策
+- `docs/execution/TEST_EVIDENCE.md`：验证证据
+- `docs/execution/BASELINE_AUDIT.md`：基线审计
