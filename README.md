@@ -10,7 +10,7 @@ An enterprise-oriented banking AI agent reference implementation built with Lang
 
 | Target | Current assessment |
 |---|---|
-| Portfolio / technical demonstration | Strong and substantially complete |
+| Portfolio / technical demonstration | Complete for the v0.2.0 portfolio release |
 | Production-like internal prototype | Partial |
 | Real banking production system | Not ready |
 
@@ -18,26 +18,27 @@ The project demonstrates enterprise architecture patterns, but it deliberately d
 
 ## Latest Verified Evidence
 
-Local verification completed on **2026-06-25**:
+Final portfolio verification completed on **2026-06-25** against commit `ad340f0`:
 
 | Check | Result |
 |---|---|
-| Automated tests | `384 passed, 1 skipped` |
-| Line coverage | `68%` across `src/` |
+| Package version | `0.2.0` |
+| Automated tests | `393 passed, 1 skipped` |
+| Line coverage | `67.29%` across `src/` |
 | Ruff lint | Passed |
 | Ruff format check | Passed |
-| MyPy | Passed for the configured scope (`87` source files) |
+| MyPy | Passed for the configured scope (`89` source files) |
 | Docker image build | Passed |
 | Docker Compose | `agent`, `postgres`, and `redis` reached `healthy` |
-| Health endpoint | `GET /health` returned `200` |
-| Live provider smoke path | DeepSeek returned `200` during manual smoke testing |
+| Health endpoints | `GET /health` and `GET /health/deep` returned `200` |
 | Trusted identity | `user-alice` could access `ACC-1001` |
 | Cross-account isolation | `user-alice` was denied access to `ACC-2001` |
-| Prompt identity spoofing | A prompt claiming to be `user-bob` did not bypass the trusted identity |
+| Prompt identity spoofing | Prompt-provided identity did not override trusted identity |
 | Secret hygiene | `.env` is ignored and common secret patterns were not found in the local Git-history scan |
 
-The skipped test is the opt-in live-provider test. Local verification does not replace GitHub Actions, release validation, penetration testing, or production certification.
+The skipped test is the opt-in live-provider test. OIDC/JWT verification is implemented and locally tested; validation against a real identity provider, including key rotation and operational deployment, remains pending.
 
+Local verification does not replace penetration testing, compliance review, production certification, or controlled deployment.
 ## Verified Capabilities
 
 - **Bounded LangGraph runtime** with explicit step limits.
@@ -195,11 +196,11 @@ uv run mypy src
 Current local result:
 
 ```text
-384 passed, 1 skipped
-68% line coverage
+393 passed, 1 skipped
+67.29% line coverage
 Ruff passed
 Format check passed
-Configured MyPy scope passed
+Configured MyPy scope passed for 89 source files
 ```
 
 ## Repository Structure
@@ -244,7 +245,7 @@ Configured MyPy scope passed
 
 The following are explicit, current limitations:
 
-1. **Production OIDC/JWT is not implemented.** The production authentication path remains a scaffold.
+1. **OIDC/JWT verification is implemented and locally tested.** Validation against a real identity provider, key rotation procedures, and production deployment remain pending.
 2. **Development identity headers are not production authentication.**
 3. **HITL identity binding is incomplete.** Some approval/session paths still use default identity values or parallel execution semantics.
 4. **SQLite is still the verified authoritative runtime store.** PostgreSQL and Redis containers start, but are not yet the main source of truth and distributed coordination layer.
