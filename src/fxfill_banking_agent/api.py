@@ -326,7 +326,7 @@ def create_app(
             if _hitl is not None:
                 hitl_session = HITLSession(
                     session_id=session_id,
-                    user_id="default",
+                    user_id=trusted.subject_id,
                     thread_id=thread_id,
                     status=HITLSessionStatus.PENDING,
                     tool_name=tool_name,
@@ -347,7 +347,7 @@ def create_app(
 
                 grant = GrantRecord(
                     session_id=session_id,
-                    requesting_user_id="default",
+                    requesting_user_id=trusted.subject_id,
                     approving_actor_id="",
                     thread_id=thread_id,
                     run_id=session_id,

@@ -15,6 +15,8 @@ dependencies = [
     "structlog>=26.1.0",
     "fastapi>=0.138.0",
     "uvicorn>=0.49.0",
+    "pyjwt>=2.13.0",
+    "cryptography>=49.0.0",
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -67,7 +69,6 @@ module = [
     "fxfill_banking_agent.telemetry",
     "fxfill_banking_agent.auth_middleware",
     "fxfill_banking_agent.postgres_backend",
-    "fxfill_banking_agent.security.oidc",
 ]
 disallow_untyped_defs = false
 warn_unused_ignores = false

@@ -77,7 +77,7 @@ class OIDCVerifier:
             return None
 
         try:
-            import jwt as pyjwt  # type: ignore[import-untyped]
+            import jwt as pyjwt
         except ImportError:
             logger.error("oidc_missing_pyjwt")
             return None
@@ -192,11 +192,13 @@ class OIDCVerifier:
     @staticmethod
     def _find_key(jwks: dict[str, Any], kid: str | None) -> Any | None:
         """Find a key by kid in the JWKS."""
-        import jwt as pyjwt  # type: ignore[import-untyped]
-
         try:
-            signing_key = pyjwt.PyJWKClient.__new__(pyjwt.PyJWKClient)
-            return signing_key  # type: ignore[return-value]
+            from jwt import PyJWKClient
+
+            client = PyJWKClient.__new__(PyJWKClient)
+            if kid:
+                return client.get_signing_key(kid)
+            return client
         except Exception:
             pass
 
@@ -205,7 +207,7 @@ class OIDCVerifier:
         for key_data in keys:
             if kid is None or key_data.get("kid") == kid:
                 try:
-                    from jwt import PyJWK  # type: ignore[import-untyped]
+                    from jwt import PyJWK
 
                     return PyJWK(key_data).key
                 except Exception:
