@@ -104,7 +104,8 @@ class RBACPolicy:
         resource: ResourceAttributes,
         action: str,
     ) -> AuthzDecision:
-        roles = {self.Role(r) for r in context.roles if r in self.Role.__members__}
+        valid_values = {r.value for r in self.Role}
+        roles = {self.Role(r) for r in context.roles if r in valid_values}
         if not roles:
             return AuthzDecision.deny("No valid roles", "NO_ROLES")
 
