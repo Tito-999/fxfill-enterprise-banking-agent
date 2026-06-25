@@ -3,6 +3,9 @@
 **Last updated:** 2026-06-25
 **Branch:** `main`
 **Enterprise core-upgrade merge:** `5a74582` (`PR #1`)
+**Portfolio release target:** `v0.2.0`
+**Release candidate commit:** `ad340f02d859a10319f2d59db557feca615cce65`
+**Release status:** Release candidate verified; annotated tag and GitHub Release pending
 **Current maturity:** Enterprise-oriented reference implementation / production-like prototype
 **Production readiness:** Not approved for real customers, real funds, or sensitive banking data
 
@@ -19,7 +22,7 @@ Local verification completed on 2026-06-25:
 | Check | Result |
 |---|---|
 | Pytest | `393 passed, 1 skipped` |
-| Line coverage | `68%` across `src/` |
+| Line coverage | `67.29%` across `src/` |
 | Ruff lint | Passed |
 | Ruff format check | Passed |
 | MyPy | Passed for the configured scope (`89` source files) |
@@ -82,13 +85,20 @@ The upstream `tau2-bench` repository is pinned read-only, but the official `bank
 
 PR #1 was merged into `main` at commit `5a74582` after the pull-request CI, security, migration and container-build gates completed successfully.
 
-## Completed Release Finalization Evidence
+## Portfolio Release Candidate Evidence
 
-- Enterprise core-upgrade PR #1 was merged into `main`.
-- Merge commit: `5a74582`.
-- Pull-request lint, formatting, type checking, tests, coverage, security scans, migration validation and container-build gates completed successfully.
-- The repository is ready for the `v0.2.0` portfolio release finalization process.
+- Package metadata and runtime version are aligned to `0.2.0`.
+- Final verification was completed against commit `ad340f02d859a10319f2d59db557feca615cce65`.
+- Automated tests completed with `393 passed, 1 skipped`.
+- Total line coverage was `67.29%`.
+- Ruff lint, Ruff formatting, and the configured MyPy scope covering `89` source files passed.
+- Docker image and clean-clone Docker Compose verification passed.
+- `agent`, `postgres`, and `redis` reached `healthy`.
+- `GET /health` and `GET /health/deep` returned HTTP `200`.
+- Trusted identity, cross-account isolation, prompt identity-spoofing protection, and secret-hygiene checks passed.
+- The release candidate is ready for the annotated `v0.2.0` tag and GitHub Release.
 
+This evidence establishes completion as a portfolio/reference release candidate. It does not establish readiness for real banking production use.
 ## Current Blockers to Production-Like Readiness
 
 1. Validate OIDC/JWT integration against a real identity provider and document key rotation behavior.
@@ -113,7 +123,7 @@ PR #1 was merged into `main` at commit `5a74582` after the pull-request CI, secu
 6. Wire observability, tamper-evident audit and operational runbooks.
 7. Remove strict-typing exemptions and raise coverage thresholds.
 8. Complete benchmark and live-provider regression evidence.
-9. Cut a documented portfolio release.
+9. Publish the verified `v0.2.0` portfolio release.
 
 ## Definition of Finished
 
