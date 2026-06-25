@@ -3,4 +3,4 @@
 Evaluated against the public τ³-bench ``banking_knowledge`` environment.
 """
 
-__version__ = "0.1.0"
+__version__ = "0.2.0"

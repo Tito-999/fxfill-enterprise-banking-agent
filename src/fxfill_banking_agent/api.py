@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
+from fxfill_banking_agent import __version__
 from fxfill_banking_agent.agent import AgentRuntime
 from fxfill_banking_agent.approval_executor import ApprovalResult, HITLApprovalExecutor
 from fxfill_banking_agent.auth import (
@@ -164,7 +165,7 @@ def create_app(
 
     app = FastAPI(
         title="fxfill-enterprise-banking-agent",
-        version="0.1.0",
+        version=__version__,
         lifespan=_lifespan,
     )
 
@@ -230,14 +231,14 @@ def create_app(
     @app.get("/health", response_model=HealthResponse)
     async def health() -> dict[str, str]:
         """Legacy health: simple liveness."""
-        return {"status": "ok", "version": "0.2.0"}
+        return {"status": "ok", "version": __version__}
 
     @app.get("/health/deep")
     async def deep_health() -> dict[str, Any]:
         """Deep health: operational diagnostics (never returns secrets)."""
         return {
             "status": "ok",
-            "version": "0.2.0",
+            "version": __version__,
             "mcp_tools": len(getattr(mcp_client, "tools", [])),
             "provider_configured": llm is not None,
         }
