@@ -88,6 +88,7 @@ PR #1 was merged into `main` at commit `5a74582` after the pull-request CI, secu
 - Merge commit: `5a74582`.
 - Pull-request lint, formatting, type checking, tests, coverage, security scans, migration validation and container-build gates completed successfully.
 - The repository is ready for the `v0.2.0` portfolio release finalization process.
+
 ## Current Blockers to Production-Like Readiness
 
 1. Validate OIDC/JWT integration against a real identity provider and document key rotation behavior.
