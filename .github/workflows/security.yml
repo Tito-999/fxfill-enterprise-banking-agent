@@ -28,12 +28,13 @@ jobs:
         with:
           python-version: "3.12"
       - run: uv sync --group dev
-      - run: pip-audit
+      - run: uvx pip-audit
 
   codeql:
     name: CodeQL Analysis
     runs-on: ubuntu-latest
     permissions:
+      contents: read
       security-events: write
     steps:
       - uses: actions/checkout@v4

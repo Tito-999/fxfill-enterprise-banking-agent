@@ -1,8 +1,8 @@
 # Execution Status — FxFill Enterprise Banking Agent
 
-**Last updated:** 2026-06-25  
-**Branch:** `enterprise/core-upgrade`  
-**Current maturity:** Enterprise-oriented reference implementation / production-like prototype  
+**Last updated:** 2026-06-25
+**Branch:** `enterprise/core-upgrade`
+**Current maturity:** Enterprise-oriented reference implementation / production-like prototype
 **Production readiness:** Not approved for real customers, real funds, or sensitive banking data
 
 ## Executive Summary
