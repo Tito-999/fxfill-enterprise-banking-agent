@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "fxfill-enterprise-banking-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "Production-oriented banking knowledge agent evaluated against public tau2-bench banking_knowledge domain"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
