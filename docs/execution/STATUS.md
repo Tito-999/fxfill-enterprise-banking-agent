@@ -1,13 +1,14 @@
 # Execution Status — FxFill Enterprise Banking Agent
 
 **Last updated:** 2026-06-25
-**Branch:** `enterprise/core-upgrade`
+**Branch:** `main`
+**Enterprise core-upgrade merge:** `5a74582` (`PR #1`)
 **Current maturity:** Enterprise-oriented reference implementation / production-like prototype
 **Production readiness:** Not approved for real customers, real funds, or sensitive banking data
 
 ## Executive Summary
 
-FxFill has a working and testable main path for synthetic banking queries and controlled tool use. The enterprise core-upgrade branch adds OIDC/JWT verification components, an extended trusted identity model, tenant-scoped RBAC/ABAC policies, HITL requester identity binding, hardened API behavior, health probes, security workflows, and architecture documentation.
+FxFill has a working and testable main path for synthetic banking queries and controlled tool use. The merged enterprise core-upgrade release adds OIDC/JWT verification components, an extended trusted identity model, tenant-scoped RBAC/ABAC policies, HITL requester identity binding, hardened API behavior, health probes, security workflows, and architecture documentation.
 
 The project remains a portfolio-grade enterprise reference implementation. It is not yet a real banking production system because PostgreSQL and Redis are not yet the authoritative runtime stores, multi-instance consistency is unproven, side-effect recovery still requires further unification, and production operational evidence remains incomplete.
 
@@ -44,7 +45,7 @@ Notes:
 | 0 — Baseline freeze | Complete | Baseline tests and coverage recorded | Keep evidence synchronized with every release |
 | 1 — Identity, authorization and HITL | Substantially complete | Trusted context, OIDC verifier, RBAC/ABAC, tenant tests, HITL requester binding | Validate against a real IdP and unify all approval/execution semantics |
 | 2 — PostgreSQL and Redis | Partial | Compose services and backend scaffolding exist | Make PostgreSQL authoritative and Redis the distributed coordination layer |
-| 3 — AgentOps and CI | Partial | Health probes, API hardening and security workflows added | Obtain green CI evidence and wire complete telemetry, audit and alerts |
+| 3 — AgentOps and CI | Substantially complete for portfolio release | Health probes, API hardening, security workflows and green PR CI evidence | Complete production telemetry, audit export, dashboards and alerts |
 | 4 — Documentation | Complete for this PR | Architecture, deployment, threat model, changelog and status documents added | Maintain documents as implementation evolves |
 
 ## Stage 1 Details
@@ -79,7 +80,14 @@ The upstream `tau2-bench` repository is pinned read-only, but the official `bank
 
 ### CI status
 
-Local quality gates pass, but the enterprise-upgrade pull request must not be merged until its GitHub Actions checks are present and green.
+PR #1 was merged into `main` at commit `5a74582` after the pull-request CI, security, migration and container-build gates completed successfully.
+
+## Completed Release Finalization Evidence
+
+- Enterprise core-upgrade PR #1 was merged into `main`.
+- Merge commit: `5a74582`.
+- Pull-request lint, formatting, type checking, tests, coverage, security scans, migration validation and container-build gates completed successfully.
+- The repository is ready for the `v0.2.0` portfolio release finalization process.
 
 ## Current Blockers to Production-Like Readiness
 
@@ -93,12 +101,11 @@ Local quality gates pass, but the enterprise-upgrade pull request must not be me
 8. Complete OpenTelemetry, metrics, audit export, dashboards and alerts.
 9. Remove remaining critical-module MyPy exemptions.
 10. Raise overall coverage to at least 85% and critical security-path coverage to at least 90%.
-11. Make all CI, security, migration and container checks green.
-12. Complete the official external benchmark and live-provider regression evidence.
+11. Complete the official external benchmark and live-provider regression evidence.
 
 ## Next Execution Order
 
-1. Resolve this pull request conflict and restore green CI.
+1. Maintain protected-branch enforcement and green CI for future pull requests.
 2. Validate OIDC with a real local identity provider.
 3. Unify HITL approval and side-effect recovery semantics.
 4. Wire PostgreSQL and Redis into the authoritative runtime path.
