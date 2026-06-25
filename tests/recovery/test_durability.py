@@ -22,6 +22,8 @@ from fxfill_banking_agent.idempotency_store import (
 from fxfill_banking_agent.llm import MockLLM
 from fxfill_banking_agent.mcp_client import StubMCPClient, ToolResult
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Helpers
 # ═══════════════════════════════════════════════════════════════════════════
@@ -417,7 +419,7 @@ class TestProcessBoundary:
                 text=True,
                 stdin=subprocess.DEVNULL,
                 timeout=timeout,
-                cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+                cwd=REPO_ROOT,
             )
         except subprocess.TimeoutExpired as exc:
             raise AssertionError(

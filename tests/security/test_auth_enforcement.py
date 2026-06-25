@@ -18,6 +18,8 @@ from fxfill_banking_agent.config import AgentConfig
 from fxfill_banking_agent.llm import MockLLM
 from fxfill_banking_agent.mcp_client import StubMCPClient, ToolResult
 
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 class TestAuthorizationEnforcement:
     @pytest.mark.asyncio
@@ -214,7 +216,7 @@ class TestProtectedPaths:
             ["grep", "-rInE", r"from tau2\.(eval|reward|gold|tasks)", "src/", "tests/"],
             capture_output=True,
             text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+            cwd=REPO_ROOT,
         )
         assert result.returncode != 0 or result.stdout.strip() == ""
 
@@ -233,7 +235,7 @@ class TestProtectedPaths:
             ],
             capture_output=True,
             text=True,
-            cwd="/mnt/f/projects/fxfill-enterprise-banking-agent",
+            cwd=REPO_ROOT,
         )
         # Only self-references in test files are acceptable
         output = result.stdout.strip()
